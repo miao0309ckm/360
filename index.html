@@ -810,7 +810,7 @@
             }
             cancelMoveMarker(); 
             markerTypeToAdd = type; 
-            showToast('請在場景中點擊要新增標記的位置。'); 
+            showToast('請在場景中點擊要新增標記の位置。'); 
         }
 
         function handleViewerClick(e, data) { 
@@ -1308,7 +1308,11 @@
             }
             
             // FIX: Robustly escape characters that can break HTML parsing inside a <script> tag.
-            const scenesDataString = JSON.stringify(scenesForExport).replace(/<\/script/g, '<\\/script');
+            const scenesDataString = JSON.stringify(scenesForExport)
+                .replace(/\\/g, '\\\\')
+                .replace(/`/g, '\\`')
+                .replace(/\$/g, '\\$')
+                .replace(/<\/script/gi, '<\\/script');
 
             const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1324,44 +1328,67 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.js"><\/script>
     <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-    <style>${document.querySelector('style').innerHTML}</style>
+    <style>
+        ${document.querySelector('style').innerHTML}
+        #local-file-warning a { text-decoration: underline; color: #1d4ed8; }
+        #local-file-warning a:hover { color: #2563eb; }
+    </style>
 </head>
-<body class="text-rose-900">
-    <div id="viewer"></div>
-    <button id="back-btn" class="hidden pop-button bg-yellow-200 !rounded-full px-4 py-2 text-2xl">← 返回</button>
-    <div id="content-panel" class="panel hidden fixed top-0 right-0 h-full w-full max-w-sm bg-rose-50 border-l-2 border-rose-300 z-30 p-6 shadow-2xl">
-         <button id="close-content-btn" class="absolute top-4 right-4 text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
-         <div id="content-panel-body" class="text-rose-800 mt-16 overflow-y-auto h-[95%] text-lg"></div>
-    </div>
-    <div id="quiz-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4">
-        <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-8 w-full max-w-lg">
-            <h3 id="quiz-question" class="text-4xl font-bold mb-8 text-center text-rose-600"></h3>
-            <div id="quiz-answers" class="space-y-3"></div>
-            <div id="quiz-hint-container" class="hidden mt-4 p-4 bg-red-100 border-2 border-red-400 text-red-800 font-semibold rounded-lg text-lg"><p id="quiz-hint-text"></p></div>
-            <div id="quiz-action-buttons" class="mt-8 flex justify-center gap-4"></div>
+<body>
+    <div id="local-file-warning" style="display: none; padding: 2rem; text-align: center; color: #831843; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 600px; width: 90%; background-color: #fdf2f8; border: 2px solid #f472b6; border-radius: 1rem;">
+        <h1 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1rem; color: #be185d;">噢！這個檔案需要從網路環境開啟</h1>
+        <p style="font-size: 1.125rem; line-height: 1.75; margin-bottom: 1.5rem;">由於瀏覽器的安全限制，直接打開這個 HTML 檔案無法正常運作。別擔心，這完全正常！</p>
+        <p style="font-size: 1.125rem; line-height: 1.75; font-weight: bold;">最簡單的解決方法是：</p>
+        <p style="font-size: 1.125rem; line-height: 1.75; margin-bottom: 1.5rem;">將這個 HTML 檔案拖曳到下面任何一個免費的線上預覽服務中，即可產生一個暫時的分享連結來正常檢視。</p>
+        <div style="display: flex; gap: 1rem; justify-content: center;">
+            <a href="https://tiiny.host" target="_blank" rel="noopener noreferrer" class="pop-button" style="background-color: #a7f3d0; color: #064e3b; padding: 0.75rem 1.5rem; text-decoration: none;">Tiiny Host</a>
+            <a href="https://www.netlify.com/products/drop/" target="_blank" rel="noopener noreferrer" class="pop-button" style="background-color: #bae6fd; color: #0c4a6e; padding: 0.75rem 1.5rem; text-decoration: none;">Netlify Drop</a>
         </div>
     </div>
-    <div id="embed-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 md:p-8">
-        <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-2 w-full max-w-4xl h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center p-2 border-b-2 border-rose-200 flex-shrink-0">
-                 <h3 id="embed-title" class="text-2xl font-bold text-rose-600 px-2"></h3>
-                 <button id="close-embed-btn" class="text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+
+    <div id="viewer-container" style="display: none;">
+        <div id="viewer"></div>
+        <button id="back-btn" class="hidden pop-button bg-yellow-200 !rounded-full px-4 py-2 text-2xl">← 返回</button>
+        <div id="content-panel" class="panel hidden fixed top-0 right-0 h-full w-full max-w-sm bg-rose-50 border-l-2 border-rose-300 z-30 p-6 shadow-2xl">
+             <button id="close-content-btn" class="absolute top-4 right-4 text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+             <div id="content-panel-body" class="text-rose-800 mt-16 overflow-y-auto h-[95%] text-lg"></div>
+        </div>
+        <div id="quiz-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4">
+            <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-8 w-full max-w-lg">
+                <h3 id="quiz-question" class="text-4xl font-bold mb-8 text-center text-rose-600"></h3>
+                <div id="quiz-answers" class="space-y-3"></div>
+                <div id="quiz-hint-container" class="hidden mt-4 p-4 bg-red-100 border-2 border-red-400 text-red-800 font-semibold rounded-lg text-lg"><p id="quiz-hint-text"></p></div>
+                <div id="quiz-action-buttons" class="mt-8 flex justify-center gap-4"></div>
             </div>
-            <div id="embed-content" class="flex-grow bg-white overflow-hidden rounded-b-xl"></div>
         </div>
-    </div>
-    <div id="toast-notification" class="fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full opacity-0" style="transition: transform 0.3s, opacity 0.3s; transform: translateY(-120%);">
-        <p id="toast-message" class="font-bold text-lg"></p>
-    </div>
-    <div id="image-lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
-        <button id="close-lightbox-btn" class="absolute top-4 right-4 text-white text-5xl font-black">&times;</button>
-        <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
+        <div id="embed-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 md:p-8">
+            <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-2 w-full max-w-4xl h-[85vh] flex flex-col">
+                <div class="flex justify-between items-center p-2 border-b-2 border-rose-200 flex-shrink-0">
+                     <h3 id="embed-title" class="text-2xl font-bold text-rose-600 px-2"></h3>
+                     <button id="close-embed-btn" class="text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+                </div>
+                <div id="embed-content" class="flex-grow bg-white overflow-hidden rounded-b-xl"></div>
+            </div>
+        </div>
+        <div id="toast-notification" class="fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full opacity-0" style="transition: transform 0.3s, opacity 0.3s; transform: translateY(-120%);">
+            <p id="toast-message" class="font-bold text-lg"></p>
+        </div>
+        <div id="image-lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
+            <button id="close-lightbox-btn" class="absolute top-4 right-4 text-white text-5xl font-black">&times;</button>
+            <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
+        </div>
     </div>
 
     <script id="tour-data" type="application/json">${scenesDataString}<\/script>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            if (window.location.protocol === 'file:') {
+                document.getElementById('local-file-warning').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('viewer-container').style.display = 'block';
             const scenesDataElement = document.getElementById('tour-data');
             const scenes = JSON.parse(scenesDataElement.textContent);
             
