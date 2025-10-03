@@ -1306,9 +1306,10 @@
                 showToast('沒有可匯出的內容！', true);
                 return;
             }
-
-            const scenesDataString = JSON.stringify(scenesForExport).replace(/</g, '\\u003c');
             
+            // FIX: Robustly escape characters that can break HTML parsing inside a <script> tag.
+            const scenesDataString = JSON.stringify(scenesForExport).replace(/<\/script/g, '<\\/script');
+
             const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
     <head>
