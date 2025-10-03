@@ -1276,12 +1276,11 @@
         });
 
         // =============================================
-        // ✨ FIXED EXPORT FUNCTION
+        // ✨ FIXED EXPORT & IMPORT FUNCTIONS
         // =============================================
         async function exportTour() {
             showToast('正在打包您的導覽...');
             
-            // Ensure markers from the current scene are saved before exporting
             const currentScene = scenes.find(s => s.id === currentSceneId);
             if(currentScene && markersPlugin) {
                 currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
@@ -1289,7 +1288,6 @@
 
             const scenesForExport = JSON.parse(JSON.stringify(scenes));
 
-            // Convert all local blob URLs to self-contained Base64 data URLs
             for (const scene of scenesForExport) {
                 if (scene.url && scene.url.startsWith('blob:')) {
                     try {
@@ -1309,191 +1307,7 @@
                 return;
             }
 
-            // Directly stringify the data and escape characters that could break the <script> tag.
-            // This is safer than using template literals with manual escaping.
             const scenesDataString = JSON.stringify(scenesForExport).replace(/</g, '\\u003c');
-
-            // This is the player script that will be embedded in the exported file.
-            // It's a self-contained player.
-            const viewerScript = `
-                let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
-
-                function showToast(message, isError = false) { 
-                    const toast = document.getElementById('toast-notification');
-                    if (!toast) return;
-                    const msg = document.getElementById('toast-message');
-                    clearTimeout(toastTimeout); 
-                    msg.textContent = message; 
-                    toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'} show\`;
-                    toastTimeout = setTimeout(() => {
-                        toast.classList.remove('show');
-                    }, 3000); 
-                }
-                
-                const loadScene = (sceneId, isBack = false) => {
-                    const scene = scenes.find(s => s.id === sceneId);
-                    if (!scene) return;
-
-                    if (!isBack && currentSceneId) sceneHistory.push(currentSceneId);
-                    document.getElementById('back-btn').classList.toggle('hidden', sceneHistory.length === 0);
-
-                    if (viewer) {
-                        viewer.setPanorama(scene.url, { transition: true, showLoader: true }).then(() => {
-                            viewer.navbar.setCaption(\`<b class="font-bold" style="color: black; font-size: 16px;">\${scene.name}</b>\`);
-                            markersPlugin.setMarkers(scene.markers || []);
-                        });
-                    } else {
-                        document.getElementById('viewer').innerHTML = '';
-                        viewer = new PhotoSphereViewer.Viewer({
-                            container: document.getElementById('viewer'),
-                            panorama: scene.url,
-                            caption: \`<b class="font-bold" style="color: black; font-size: 16px;">\${scene.name}</b>\`,
-                            navbar: ['zoom', 'caption', 'fullscreen'],
-                            plugins: [ [PhotoSphereViewer.MarkersPlugin, { markers: scene.markers || [] }] ]
-                        });
-                        markersPlugin = viewer.getPlugin(PhotoSphereViewer.MarkersPlugin);
-                        markersPlugin.on('select-marker', (e, marker) => handleMarkerSelect(marker));
-                    }
-                    currentSceneId = sceneId;
-                };
-
-                const handleMarkerSelect = (marker) => {
-                    const data = marker.config.data;
-                    if (!data) return;
-                    if (data.type === 'link') {
-                        loadScene(data.targetSceneId);
-                    } else if (data.type === 'quiz') {
-                        showQuiz(data);
-                    } else if (data.type === 'embed') {
-                        showEmbed(data);
-                    } else if (data.type === 'info') {
-                        const contentPanelBody = document.getElementById('content-panel-body');
-                        let contentHTML = \`<h3 class="text-4xl font-bold mb-4 text-rose-600">\${data.title || '資訊'}</h3>\`;
-                        if (data.audioUrl) {
-                            contentHTML += \`<audio controls src="\${data.audioUrl}" class="w-full mt-2"></audio>\`;
-                        }
-                        if (data.imageUrl) contentHTML += \`<img src="\${data.imageUrl}" alt="Image" class="w-full border-2 border-pink-300 rounded-lg mt-2 cursor-pointer" onerror="this.style.display='none'">\`;
-                        if (data.content) contentHTML += \`<p class="mt-4 whitespace-pre-wrap">\${data.content}</p>\`;
-                        if (data.linkUrl) contentHTML += \`<a href="\${data.linkUrl}" target="_blank" rel="noopener noreferrer" class="pop-button mt-4 w-full text-center block bg-rose-400 hover:bg-rose-500 text-white">\${data.linkText || '了解更多'}</a>\`;
-                        contentPanelBody.innerHTML = contentHTML;
-                        document.getElementById('content-panel').classList.remove('hidden');
-                    }
-                };
-                
-                const showEmbed = (embedData) => {
-                    document.getElementById('embed-title').textContent = embedData.title;
-                    let content = embedData.url.trim();
-                    if (!content.startsWith('<iframe')) {
-                        content = \`<iframe src="\${content}" class="w-full h-full border-0" allowfullscreen></iframe>\`;
-                    }
-                    document.getElementById('embed-content').innerHTML = content;
-                    document.getElementById('embed-display-modal').classList.remove('hidden');
-                };
-                
-                const showQuiz = (quizData) => {
-                    currentQuizData = quizData;
-                    const modal = document.getElementById('quiz-display-modal');
-                    const question = document.getElementById('quiz-question');
-                    const answers = document.getElementById('quiz-answers');
-                    const actions = document.getElementById('quiz-action-buttons');
-                    const hint = document.getElementById('quiz-hint-container');
-                    
-                    question.textContent = quizData.question;
-                    answers.innerHTML = ''; 
-                    actions.innerHTML = '';
-                    hint.classList.add('hidden');
-
-                    switch(quizData.quizType) {
-                        case 'mc':
-                            ['a', 'b', 'c', 'd'].forEach(opt => {
-                                if(quizData.answers[opt]) {
-                                    const btn = document.createElement('button');
-                                    btn.className = 'pop-button bg-sky-300 hover:bg-sky-400 text-sky-800 p-4 text-left w-full text-lg';
-                                    btn.innerHTML = \`<span class="font-bold mr-2">\${opt.toUpperCase()}.</span> \${quizData.answers[opt]}\`;
-                                    btn.onclick = () => checkAnswer(opt === quizData.correctAnswer);
-                                    answers.appendChild(btn);
-                                }
-                            });
-                            break;
-                         case 'sort':
-                            const items = [...quizData.correctOrder].sort(() => Math.random() - 0.5);
-                            items.forEach(itemText => { const itemEl = document.createElement('div'); itemEl.textContent = itemText; itemEl.className = 'sortable-item pop-button bg-white p-3 text-lg'; itemEl.draggable = true; answers.appendChild(itemEl); });
-                            makeSortable(answers);
-                            const checkSortBtn = document.createElement('button'); checkSortBtn.textContent = '確定答案'; checkSortBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkSortBtn.onclick = checkSortAnswer;
-                            actions.appendChild(checkSortBtn);
-                            break;
-                        case 'fill':
-                            const questionHtml = quizData.question.replace(/___/g, '<input type="text" class="fill-answer-input mx-2 p-1 border-2 border-rose-400 rounded-lg w-32 bg-white">');
-                            const questionP = document.createElement('p'); questionP.innerHTML = questionHtml; questionP.className = 'text-center text-2xl';
-                            answers.appendChild(questionP);
-                            const checkFillBtn = document.createElement('button'); checkFillBtn.textContent = '確定答案'; checkFillBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkFillBtn.onclick = checkFillAnswer;
-                            actions.appendChild(checkFillBtn);
-                            break;
-                    }
-
-                    const closeBtn = document.createElement('button');
-                    closeBtn.textContent = '關閉';
-                    closeBtn.className = 'pop-button bg-gray-300 py-2 px-6 text-lg';
-                    closeBtn.onclick = () => modal.classList.add('hidden');
-                    actions.appendChild(closeBtn);
-                    modal.classList.remove('hidden');
-                };
-                
-                const checkAnswer = (isCorrect) => {
-                    if (isCorrect) { 
-                        showToast('答對了！'); 
-                        document.getElementById('quiz-display-modal').classList.add('hidden'); 
-                        if(currentQuizData.targetSceneId) {
-                            setTimeout(() => loadScene(currentQuizData.targetSceneId), 500); 
-                        }
-                    } else { 
-                        showToast('答錯了！', true); 
-                        if (currentQuizData.hint) { 
-                            document.getElementById('quiz-hint-text').textContent = \`提示：\${currentQuizData.hint}\`; 
-                            document.getElementById('quiz-hint-container').classList.remove('hidden'); 
-                        } 
-                    }
-                };
-
-                function checkSortAnswer() { const currentOrder = [...document.getElementById('quiz-answers').querySelectorAll('.sortable-item')].map(item => item.textContent); checkAnswer(JSON.stringify(currentOrder) === JSON.stringify(currentQuizData.correctOrder)); }
-                function checkFillAnswer() { const userInput = document.querySelector('.fill-answer-input').value.trim(); const correctAnswers = currentQuizData.answers.map(ans => ans.toLowerCase()); checkAnswer(correctAnswers.includes(userInput.toLowerCase())); }
-                function makeSortable(container) { let dI = null; container.addEventListener('dragstart', e => { dI = e.target; setTimeout(() => e.target.classList.add('dragging'), 0); }); container.addEventListener('dragend', e => e.target.classList.remove('dragging')); container.addEventListener('dragover', e => { e.preventDefault(); const aE = getDragAfterElement(container, e.clientY); if (aE == null) container.appendChild(dI); else container.insertBefore(dI, aE); }); }
-                function getDragAfterElement(container, y) { const dE = [...container.querySelectorAll('.sortable-item:not(.dragging)')]; return dE.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
-
-                if (scenes && scenes.length > 0) {
-                    loadScene(scenes[0].id);
-                } else {
-                    document.body.innerHTML = '<h1>找不到導覽資料。</h1>';
-                }
-
-                document.getElementById('close-content-btn').addEventListener('click', () => document.getElementById('content-panel').classList.add('hidden'));
-                document.getElementById('back-btn').addEventListener('click', () => { 
-                    if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); 
-                });
-                document.getElementById('close-embed-btn').addEventListener('click', () => {
-                    document.getElementById('embed-display-modal').classList.add('hidden');
-                    document.getElementById('embed-content').innerHTML = '';
-                });
-
-                const lightbox = document.getElementById('image-lightbox');
-                const lightboxImage = document.getElementById('lightbox-image');
-                document.getElementById('content-panel-body').addEventListener('click', (e) => {
-                    if (e.target.tagName === 'IMG') {
-                        lightboxImage.src = e.target.src;
-                        lightbox.classList.remove('hidden');
-                    }
-                });
-                const closeLightbox = () => {
-                    lightbox.classList.add('hidden');
-                    lightboxImage.src = '';
-                };
-                document.getElementById('close-lightbox-btn').addEventListener('click', closeLightbox);
-                lightbox.addEventListener('click', (e) => {
-                    if (e.target === lightbox) {
-                        closeLightbox();
-                    }
-                });
-            `;
             
             const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1542,10 +1356,191 @@
         <button id="close-lightbox-btn" class="absolute top-4 right-4 text-white text-5xl font-black">&times;</button>
         <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
     </div>
+
+    <script id="tour-data" type="application/json">${scenesDataString}<\/script>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const scenes = ${scenesDataString};
-            ${viewerScript}
+            const scenesDataElement = document.getElementById('tour-data');
+            const scenes = JSON.parse(scenesDataElement.textContent);
+            
+            let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
+
+            function showToast(message, isError = false) { 
+                const toast = document.getElementById('toast-notification');
+                if (!toast) return;
+                const msg = document.getElementById('toast-message');
+                clearTimeout(toastTimeout); 
+                msg.textContent = message; 
+                toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'} show\`;
+                toastTimeout = setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000); 
+            }
+            
+            const loadScene = (sceneId, isBack = false) => {
+                const scene = scenes.find(s => s.id === sceneId);
+                if (!scene) return;
+
+                if (!isBack && currentSceneId) sceneHistory.push(currentSceneId);
+                document.getElementById('back-btn').classList.toggle('hidden', sceneHistory.length === 0);
+
+                if (viewer) {
+                    viewer.setPanorama(scene.url, { transition: true, showLoader: true }).then(() => {
+                        viewer.navbar.setCaption(\`<b class="font-bold" style="color: black; font-size: 16px;">\${scene.name}</b>\`);
+                        markersPlugin.setMarkers(scene.markers || []);
+                    });
+                } else {
+                    document.getElementById('viewer').innerHTML = '';
+                    viewer = new PhotoSphereViewer.Viewer({
+                        container: document.getElementById('viewer'),
+                        panorama: scene.url,
+                        caption: \`<b class="font-bold" style="color: black; font-size: 16px;">\${scene.name}</b>\`,
+                        navbar: ['zoom', 'caption', 'fullscreen'],
+                        plugins: [ [PhotoSphereViewer.MarkersPlugin, { markers: scene.markers || [] }] ]
+                    });
+                    markersPlugin = viewer.getPlugin(PhotoSphereViewer.MarkersPlugin);
+                    markersPlugin.on('select-marker', (e, marker) => handleMarkerSelect(marker));
+                }
+                currentSceneId = sceneId;
+            };
+
+            const handleMarkerSelect = (marker) => {
+                const data = marker.config.data;
+                if (!data) return;
+                if (data.type === 'link') {
+                    loadScene(data.targetSceneId);
+                } else if (data.type === 'quiz') {
+                    showQuiz(data);
+                } else if (data.type === 'embed') {
+                    showEmbed(data);
+                } else if (data.type === 'info') {
+                    const contentPanelBody = document.getElementById('content-panel-body');
+                    let contentHTML = \`<h3 class="text-4xl font-bold mb-4 text-rose-600">\${data.title || '資訊'}</h3>\`;
+                    if (data.audioUrl) {
+                        contentHTML += \`<audio controls src="\${data.audioUrl}" class="w-full mt-2"></audio>\`;
+                    }
+                    if (data.imageUrl) contentHTML += \`<img src="\${data.imageUrl}" alt="Image" class="w-full border-2 border-pink-300 rounded-lg mt-2 cursor-pointer" onerror="this.style.display='none'">\`;
+                    if (data.content) contentHTML += \`<p class="mt-4 whitespace-pre-wrap">\${data.content}</p>\`;
+                    if (data.linkUrl) contentHTML += \`<a href="\${data.linkUrl}" target="_blank" rel="noopener noreferrer" class="pop-button mt-4 w-full text-center block bg-rose-400 hover:bg-rose-500 text-white">\${data.linkText || '了解更多'}</a>\`;
+                    contentPanelBody.innerHTML = contentHTML;
+                    document.getElementById('content-panel').classList.remove('hidden');
+                }
+            };
+            
+            const showEmbed = (embedData) => {
+                document.getElementById('embed-title').textContent = embedData.title;
+                let content = embedData.url.trim();
+                if (!content.startsWith('<iframe')) {
+                    content = \`<iframe src="\${content}" class="w-full h-full border-0" allowfullscreen></iframe>\`;
+                }
+                document.getElementById('embed-content').innerHTML = content;
+                document.getElementById('embed-display-modal').classList.remove('hidden');
+            };
+            
+            const showQuiz = (quizData) => {
+                currentQuizData = quizData;
+                const modal = document.getElementById('quiz-display-modal');
+                const question = document.getElementById('quiz-question');
+                const answers = document.getElementById('quiz-answers');
+                const actions = document.getElementById('quiz-action-buttons');
+                const hint = document.getElementById('quiz-hint-container');
+                
+                question.textContent = quizData.question;
+                answers.innerHTML = ''; 
+                actions.innerHTML = '';
+                hint.classList.add('hidden');
+
+                switch(quizData.quizType) {
+                    case 'mc':
+                        ['a', 'b', 'c', 'd'].forEach(opt => {
+                            if(quizData.answers[opt]) {
+                                const btn = document.createElement('button');
+                                btn.className = 'pop-button bg-sky-300 hover:bg-sky-400 text-sky-800 p-4 text-left w-full text-lg';
+                                btn.innerHTML = \`<span class="font-bold mr-2">\${opt.toUpperCase()}.</span> \${quizData.answers[opt]}\`;
+                                btn.onclick = () => checkAnswer(opt === quizData.correctAnswer);
+                                answers.appendChild(btn);
+                            }
+                        });
+                        break;
+                     case 'sort':
+                        const items = [...quizData.correctOrder].sort(() => Math.random() - 0.5);
+                        items.forEach(itemText => { const itemEl = document.createElement('div'); itemEl.textContent = itemText; itemEl.className = 'sortable-item pop-button bg-white p-3 text-lg'; itemEl.draggable = true; answers.appendChild(itemEl); });
+                        makeSortable(answers);
+                        const checkSortBtn = document.createElement('button'); checkSortBtn.textContent = '確定答案'; checkSortBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkSortBtn.onclick = checkSortAnswer;
+                        actions.appendChild(checkSortBtn);
+                        break;
+                    case 'fill':
+                        const questionHtml = quizData.question.replace(/___/g, '<input type="text" class="fill-answer-input mx-2 p-1 border-2 border-rose-400 rounded-lg w-32 bg-white">');
+                        const questionP = document.createElement('p'); questionP.innerHTML = questionHtml; questionP.className = 'text-center text-2xl';
+                        answers.appendChild(questionP);
+                        const checkFillBtn = document.createElement('button'); checkFillBtn.textContent = '確定答案'; checkFillBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkFillBtn.onclick = checkFillAnswer;
+                        actions.appendChild(checkFillBtn);
+                        break;
+                }
+
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = '關閉';
+                closeBtn.className = 'pop-button bg-gray-300 py-2 px-6 text-lg';
+                closeBtn.onclick = () => modal.classList.add('hidden');
+                actions.appendChild(closeBtn);
+                modal.classList.remove('hidden');
+            };
+            
+            const checkAnswer = (isCorrect) => {
+                if (isCorrect) { 
+                    showToast('答對了！'); 
+                    document.getElementById('quiz-display-modal').classList.add('hidden'); 
+                    if(currentQuizData.targetSceneId) {
+                        setTimeout(() => loadScene(currentQuizData.targetSceneId), 500); 
+                    }
+                } else { 
+                    showToast('答錯了！', true); 
+                    if (currentQuizData.hint) { 
+                        document.getElementById('quiz-hint-text').textContent = \`提示：\${currentQuizData.hint}\`; 
+                        document.getElementById('quiz-hint-container').classList.remove('hidden'); 
+                    } 
+                }
+            };
+
+            function checkSortAnswer() { const currentOrder = [...document.getElementById('quiz-answers').querySelectorAll('.sortable-item')].map(item => item.textContent); checkAnswer(JSON.stringify(currentOrder) === JSON.stringify(currentQuizData.correctOrder)); }
+            function checkFillAnswer() { const userInput = document.querySelector('.fill-answer-input').value.trim(); const correctAnswers = currentQuizData.answers.map(ans => ans.toLowerCase()); checkAnswer(correctAnswers.includes(userInput.toLowerCase())); }
+            function makeSortable(container) { let dI = null; container.addEventListener('dragstart', e => { dI = e.target; setTimeout(() => e.target.classList.add('dragging'), 0); }); container.addEventListener('dragend', e => e.target.classList.remove('dragging')); container.addEventListener('dragover', e => { e.preventDefault(); const aE = getDragAfterElement(container, e.clientY); if (aE == null) container.appendChild(dI); else container.insertBefore(dI, aE); }); }
+            function getDragAfterElement(container, y) { const dE = [...container.querySelectorAll('.sortable-item:not(.dragging)')]; return dE.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
+
+            if (scenes && scenes.length > 0) {
+                loadScene(scenes[0].id);
+            } else {
+                document.body.innerHTML = '<h1>找不到導覽資料。</h1>';
+            }
+
+            document.getElementById('close-content-btn').addEventListener('click', () => document.getElementById('content-panel').classList.add('hidden'));
+            document.getElementById('back-btn').addEventListener('click', () => { 
+                if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); 
+            });
+            document.getElementById('close-embed-btn').addEventListener('click', () => {
+                document.getElementById('embed-display-modal').classList.add('hidden');
+                document.getElementById('embed-content').innerHTML = '';
+            });
+
+            const lightbox = document.getElementById('image-lightbox');
+            const lightboxImage = document.getElementById('lightbox-image');
+            document.getElementById('content-panel-body').addEventListener('click', (e) => {
+                if (e.target.tagName === 'IMG') {
+                    lightboxImage.src = e.target.src;
+                    lightbox.classList.remove('hidden');
+                }
+            });
+            const closeLightbox = () => {
+                lightbox.classList.add('hidden');
+                lightboxImage.src = '';
+            };
+            document.getElementById('close-lightbox-btn').addEventListener('click', closeLightbox);
+            lightbox.addEventListener('click', (e) => {
+                if (e.target === lightbox) {
+                    closeLightbox();
+                }
+            });
         });
     <\/script>
 </body>
@@ -1554,7 +1549,7 @@
             const blob = new Blob([exportHtmlTemplate.trim()], { type: 'text/html' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `tour-${Date.now()}.html`;
+            a.download = 'tour-export.html';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1571,9 +1566,7 @@
 
             reader.onload = (e) => {
                 const htmlContent = e.target.result;
-                // Updated Regex to be more robust
-                const regex = /const\s+scenes\s*=\s*(\[[\s\S]*?\]);/;
-                const match = htmlContent.match(regex);
+                const match = htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
 
                 if (match && match[1]) {
                     try {
@@ -1944,3 +1937,4 @@
     </script>
 </body>
 </html>
+
