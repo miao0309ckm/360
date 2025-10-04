@@ -268,7 +268,7 @@
         </div>
 
         <div class="mt-8 border-t-2 border-rose-200 pt-4 text-center">
-            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.0</span></p>
+            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.1</span></p>
             <p class="text-sm text-rose-600">回饋來信請洽：miao0309@miao.asia</p>
         </div>
         
@@ -810,7 +810,7 @@
             }
             cancelMoveMarker(); 
             markerTypeToAdd = type; 
-            showToast('請在場景中點擊要新增標記の位置。'); 
+            showToast('請在場景中點擊要新增標記的位置。'); 
         }
 
         function handleViewerClick(e, data) { 
@@ -1276,47 +1276,40 @@
         });
 
         // =============================================
-        // ✨ FIXED EXPORT & IMPORT FUNCTIONS
+        // ✨ NEW ROBUST EXPORT & IMPORT FUNCTIONS
         // =============================================
         async function exportTour() {
-            showToast('正在打包您的導覽...');
+            showToast('正在打包您的導覽，請稍候...', false);
             
-            const currentScene = scenes.find(s => s.id === currentSceneId);
-            if(currentScene && markersPlugin) {
-                currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
-            }
+            try {
+                // 1. Save current scene markers
+                const currentScene = scenes.find(s => s.id === currentSceneId);
+                if (currentScene && markersPlugin) {
+                    currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
+                }
 
-            const scenesForExport = JSON.parse(JSON.stringify(scenes));
-
-            for (const scene of scenesForExport) {
-                if (scene.url && scene.url.startsWith('blob:')) {
-                    try {
+                // 2. Prepare scene data (deep copy) and convert blobs to base64
+                const scenesForExport = JSON.parse(JSON.stringify(scenes));
+                for (const scene of scenesForExport) {
+                    if (scene.url && scene.url.startsWith('blob:')) {
                         const response = await fetch(scene.url);
                         const blob = await response.blob();
                         scene.url = await blobToDataURL(blob);
-                    } catch (error) {
-                        console.error('Error converting blob to data URL for export:', error);
-                        showToast(`匯出 "${scene.name}" 時發生錯誤`, true);
-                        return;
                     }
                 }
-            }
-            
-            if (!scenesForExport || scenesForExport.length === 0) {
-                showToast('沒有可匯出的內容！', true);
-                return;
-            }
-            
-            // FIX: Robustly escape characters that can break HTML parsing inside a <script> tag.
-            const scenesDataString = JSON.stringify(scenesForExport)
-                .replace(/\\/g, '\\\\')
-                .replace(/`/g, '\\`')
-                .replace(/\$/g, '\\$')
-                .replace(/<\/script/gi, '<\\/script');
 
-            const exportHtmlTemplate = `<!DOCTYPE html>
+                if (!scenesForExport.length) {
+                    showToast('沒有可匯出的內容！', true);
+                    return;
+                }
+
+                // 3. Create a robust JSON string for embedding
+                const scenesDataString = JSON.stringify(scenesForExport).replace(/<\/script/gi, '<\\/script');
+
+                // 4. Define the self-contained HTML template with the local file warning
+                const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
-    <head>
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${scenesForExport[0].name || '360° 互動導覽'}</title>
@@ -1329,20 +1322,20 @@
     <script src="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.js"><\/script>
     <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        ${document.querySelector('style').innerHTML}
+        ${document.querySelector('style').innerHTML.replace(/</g, '\\u003c')}
         #local-file-warning a { text-decoration: underline; color: #1d4ed8; }
         #local-file-warning a:hover { color: #2563eb; }
     </style>
 </head>
 <body>
-    <div id="local-file-warning" style="display: none; padding: 2rem; text-align: center; color: #831843; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 600px; width: 90%; background-color: #fdf2f8; border: 2px solid #f472b6; border-radius: 1rem;">
+    <div id="local-file-warning" style="display: none; padding: 2rem; text-align: center; color: #831843; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 600px; width: 90%; background-color: #fdf2f8; border: 2px solid #f472b6; border-radius: 1rem; font-family: 'Noto Sans TC', sans-serif;">
         <h1 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 1rem; color: #be185d;">噢！這個檔案需要從網路環境開啟</h1>
         <p style="font-size: 1.125rem; line-height: 1.75; margin-bottom: 1.5rem;">由於瀏覽器的安全限制，直接打開這個 HTML 檔案無法正常運作。別擔心，這完全正常！</p>
         <p style="font-size: 1.125rem; line-height: 1.75; font-weight: bold;">最簡單的解決方法是：</p>
         <p style="font-size: 1.125rem; line-height: 1.75; margin-bottom: 1.5rem;">將這個 HTML 檔案拖曳到下面任何一個免費的線上預覽服務中，即可產生一個暫時的分享連結來正常檢視。</p>
         <div style="display: flex; gap: 1rem; justify-content: center;">
-            <a href="https://tiiny.host" target="_blank" rel="noopener noreferrer" class="pop-button" style="background-color: #a7f3d0; color: #064e3b; padding: 0.75rem 1.5rem; text-decoration: none;">Tiiny Host</a>
-            <a href="https://www.netlify.com/products/drop/" target="_blank" rel="noopener noreferrer" class="pop-button" style="background-color: #bae6fd; color: #0c4a6e; padding: 0.75rem 1.5rem; text-decoration: none;">Netlify Drop</a>
+            <a href="https://tiiny.host" target="_blank" rel="noopener noreferrer" class="pop-button" style="background-color: #a7f3d0; color: #064e3b; padding: 0.75rem 1.5rem; text-decoration: none; border-color: #065f46; box-shadow: 2px 2px 0px #065f46;">Tiiny Host</a>
+            <a href="https://www.netlify.com/products/drop/" target="_blank" rel="noopener noreferrer" class="pop-button" style="background-color: #bae6fd; color: #0c4a6e; padding: 0.75rem 1.5rem; text-decoration: none; border-color: #0369a1; box-shadow: 2px 2px 0px #0369a1;">Netlify Drop</a>
         </div>
     </div>
 
@@ -1350,8 +1343,8 @@
         <div id="viewer"></div>
         <button id="back-btn" class="hidden pop-button bg-yellow-200 !rounded-full px-4 py-2 text-2xl">← 返回</button>
         <div id="content-panel" class="panel hidden fixed top-0 right-0 h-full w-full max-w-sm bg-rose-50 border-l-2 border-rose-300 z-30 p-6 shadow-2xl">
-             <button id="close-content-btn" class="absolute top-4 right-4 text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
-             <div id="content-panel-body" class="text-rose-800 mt-16 overflow-y-auto h-[95%] text-lg"></div>
+            <button id="close-content-btn" class="absolute top-4 right-4 text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+            <div id="content-panel-body" class="text-rose-800 mt-16 overflow-y-auto h-[95%] text-lg"></div>
         </div>
         <div id="quiz-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4">
             <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-8 w-full max-w-lg">
@@ -1364,8 +1357,8 @@
         <div id="embed-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 md:p-8">
             <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-2 w-full max-w-4xl h-[85vh] flex flex-col">
                 <div class="flex justify-between items-center p-2 border-b-2 border-rose-200 flex-shrink-0">
-                     <h3 id="embed-title" class="text-2xl font-bold text-rose-600 px-2"></h3>
-                     <button id="close-embed-btn" class="text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+                    <h3 id="embed-title" class="text-2xl font-bold text-rose-600 px-2"></h3>
+                    <button id="close-embed-btn" class="text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
                 </div>
                 <div id="embed-content" class="flex-grow bg-white overflow-hidden rounded-b-xl"></div>
             </div>
@@ -1401,15 +1394,12 @@
                 clearTimeout(toastTimeout); 
                 msg.textContent = message; 
                 toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'} show\`;
-                toastTimeout = setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 3000); 
+                toastTimeout = setTimeout(() => { toast.classList.remove('show'); }, 3000); 
             }
             
             const loadScene = (sceneId, isBack = false) => {
                 const scene = scenes.find(s => s.id === sceneId);
                 if (!scene) return;
-
                 if (!isBack && currentSceneId) sceneHistory.push(currentSceneId);
                 document.getElementById('back-btn').classList.toggle('hidden', sceneHistory.length === 0);
 
@@ -1419,7 +1409,6 @@
                         markersPlugin.setMarkers(scene.markers || []);
                     });
                 } else {
-                    document.getElementById('viewer').innerHTML = '';
                     viewer = new PhotoSphereViewer.Viewer({
                         container: document.getElementById('viewer'),
                         panorama: scene.url,
@@ -1436,18 +1425,13 @@
             const handleMarkerSelect = (marker) => {
                 const data = marker.config.data;
                 if (!data) return;
-                if (data.type === 'link') {
-                    loadScene(data.targetSceneId);
-                } else if (data.type === 'quiz') {
-                    showQuiz(data);
-                } else if (data.type === 'embed') {
-                    showEmbed(data);
-                } else if (data.type === 'info') {
+                if (data.type === 'link') loadScene(data.targetSceneId);
+                else if (data.type === 'quiz') showQuiz(data);
+                else if (data.type === 'embed') showEmbed(data);
+                else if (data.type === 'info') {
                     const contentPanelBody = document.getElementById('content-panel-body');
                     let contentHTML = \`<h3 class="text-4xl font-bold mb-4 text-rose-600">\${data.title || '資訊'}</h3>\`;
-                    if (data.audioUrl) {
-                        contentHTML += \`<audio controls src="\${data.audioUrl}" class="w-full mt-2"></audio>\`;
-                    }
+                    if (data.audioUrl) contentHTML += \`<audio controls src="\${data.audioUrl}" class="w-full mt-2"></audio>\`;
                     if (data.imageUrl) contentHTML += \`<img src="\${data.imageUrl}" alt="Image" class="w-full border-2 border-pink-300 rounded-lg mt-2 cursor-pointer" onerror="this.style.display='none'">\`;
                     if (data.content) contentHTML += \`<p class="mt-4 whitespace-pre-wrap">\${data.content}</p>\`;
                     if (data.linkUrl) contentHTML += \`<a href="\${data.linkUrl}" target="_blank" rel="noopener noreferrer" class="pop-button mt-4 w-full text-center block bg-rose-400 hover:bg-rose-500 text-white">\${data.linkText || '了解更多'}</a>\`;
@@ -1473,12 +1457,10 @@
                 const answers = document.getElementById('quiz-answers');
                 const actions = document.getElementById('quiz-action-buttons');
                 const hint = document.getElementById('quiz-hint-container');
-                
                 question.textContent = quizData.question;
                 answers.innerHTML = ''; 
                 actions.innerHTML = '';
                 hint.classList.add('hidden');
-
                 switch(quizData.quizType) {
                     case 'mc':
                         ['a', 'b', 'c', 'd'].forEach(opt => {
@@ -1506,7 +1488,6 @@
                         actions.appendChild(checkFillBtn);
                         break;
                 }
-
                 const closeBtn = document.createElement('button');
                 closeBtn.textContent = '關閉';
                 closeBtn.className = 'pop-button bg-gray-300 py-2 px-6 text-lg';
@@ -1543,9 +1524,7 @@
             }
 
             document.getElementById('close-content-btn').addEventListener('click', () => document.getElementById('content-panel').classList.add('hidden'));
-            document.getElementById('back-btn').addEventListener('click', () => { 
-                if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); 
-            });
+            document.getElementById('back-btn').addEventListener('click', () => { if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); });
             document.getElementById('close-embed-btn').addEventListener('click', () => {
                 document.getElementById('embed-display-modal').classList.add('hidden');
                 document.getElementById('embed-content').innerHTML = '';
@@ -1559,30 +1538,28 @@
                     lightbox.classList.remove('hidden');
                 }
             });
-            const closeLightbox = () => {
-                lightbox.classList.add('hidden');
-                lightboxImage.src = '';
-            };
+            const closeLightbox = () => { lightbox.classList.add('hidden'); lightboxImage.src = ''; };
             document.getElementById('close-lightbox-btn').addEventListener('click', closeLightbox);
-            lightbox.addEventListener('click', (e) => {
-                if (e.target === lightbox) {
-                    closeLightbox();
-                }
-            });
+            lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
         });
     <\/script>
 </body>
 </html>`;
 
-            const blob = new Blob([exportHtmlTemplate.trim()], { type: 'text/html' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'tour-export.html';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(a.href);
-            showToast('導覽檔案已成功匯出！');
+                // 5. Create and trigger download
+                const blob = new Blob([exportHtmlTemplate.trim()], { type: 'text/html' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'tour-export.html';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+                showToast('導覽檔案已成功匯出！');
+            } catch(error) {
+                console.error('打包導覽時發生錯誤:', error);
+                showToast('打包導覽失敗，請檢查您的網路連線後再試一次。', true);
+            }
         }
 
         function handleTourImport(event) {
