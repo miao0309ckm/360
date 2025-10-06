@@ -267,7 +267,7 @@
         </div>
 
         <div class="mt-8 border-t-2 border-rose-200 pt-4 text-center">
-            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.1 (修正版)</span></p>
+            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.2 (完全離線版)</span></p>
             <p class="text-sm text-rose-600">回饋來信請洽：miao0309@miao.asia</p>
         </div>
         
@@ -1275,7 +1275,7 @@
         // ✨ FIXED & ROBUST EXPORT & IMPORT FUNCTIONS
         // =============================================
         async function exportTour() {
-            showToast('正在打包您的導覽，這可能需要一點時間...', false);
+            showToast('正在打包您的導覽...', false);
         
             try {
                 // 1. Save current scene markers to the main 'scenes' array
@@ -1286,6 +1286,7 @@
         
                 // 2. Deep copy scenes and convert all blob URLs to Base64 data URLs for embedding
                 const scenesForExport = JSON.parse(JSON.stringify(scenes));
+                showToast('正在處理媒體檔案...', false);
                 for (const scene of scenesForExport) {
                     // Convert scene panorama image
                     if (scene.url && scene.url.startsWith('blob:')) {
@@ -1296,12 +1297,10 @@
                     // Convert marker audio files
                     if (scene.markers) {
                          for (const markerConfig of scene.markers) {
-                            if (markerConfig.data && markerConfig.data.audioUrl && markerConfig.data.audioUrl.startsWith('blob:')) {
-                                const response = await fetch(markerConfig.data.audioUrl);
-                                const blob = await response.blob();
-                                markerConfig.data.audioUrl = await blobToDataURL(blob);
-                            }
-                        }
+                            // Audio data is already converted to base64 in saveMarker, 
+                            // so we just need to ensure it's there. Blob URLs for audio
+                            // only exist temporarily in the modal.
+                         }
                     }
                 }
         
@@ -1309,6 +1308,29 @@
                     showToast('沒有可匯出的內容！', true);
                     return;
                 }
+
+                showToast('正在下載必要程式庫...', false);
+                const libUrls = {
+                    tailwind: 'https://cdn.tailwindcss.com',
+                    three: 'https://cdn.jsdelivr.net/npm/three/build/three.min.js',
+                    uevent: 'https://cdn.jsdelivr.net/npm/uevent@2/browser.min.js',
+                    psvCss: 'https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/photo-sphere-viewer.min.css',
+                    psvJs: 'https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/photo-sphere-viewer.min.js',
+                    markersCss: 'https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.css',
+                    markersJs: 'https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.js'
+                };
+
+                const libContents = await Promise.all(
+                    Object.values(libUrls).map(url => fetch(url).then(res => {
+                        if (!res.ok) throw new Error(`無法下載 ${url}`);
+                        return res.text();
+                    }))
+                );
+
+                const [
+                    tailwindJs, threeJs, uEventJs, psvCss, psvJs, markersCss, markersJs
+                ] = libContents;
+
         
                 // 3. Serialize the complete tour data into a JSON string
                 const scenesDataString = JSON.stringify(scenesForExport);
@@ -1316,22 +1338,20 @@
                 // 4. Get all custom CSS from the editor page
                 const customCss = document.querySelector('style').innerHTML;
         
-                // 5. Define the self-contained HTML template using CDN links for libraries
+                // 5. Define the self-contained HTML template using embedded libraries
                 const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${scenesForExport[0].name || '360° 互動導覽'}</title>
-    <script src="https://cdn.tailwindcss.com"><\/script>
-    <script src="https://cdn.jsdelivr.net/npm/three/build/three.min.js"><\/script>
-    <script src="https://cdn.jsdelivr.net/npm/uevent@2/browser.min.js"><\/script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/photo-sphere-viewer.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/photo-sphere-viewer.min.js"><\/script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.js"><\/script>
     <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-    <style>${customCss}<\/style>
+    <style>
+        ${psvCss}
+        ${markersCss}
+        ${customCss}
+    <\/style>
+    <script>${tailwindJs.replace(/<\/script/gi, '<\\/script')}<\/script>
 </head>
 <body class="text-rose-900">
     <div id="viewer"></div>
@@ -1364,7 +1384,17 @@
         <button id="close-lightbox-btn" class="absolute top-4 right-4 text-white text-5xl font-black">&times;</button>
         <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
     </div>
+
     <script id="tour-data" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
+    
+    <script>
+        // Embedded libraries
+        ${threeJs.replace(/<\/script/gi, '<\\/script')}
+        ${uEventJs.replace(/<\/script/gi, '<\\/script')}
+        ${psvJs.replace(/<\/script/gi, '<\\/script')}
+        ${markersJs.replace(/<\/script/gi, '<\\/script')}
+    <\/script>
+
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const scenesDataElement = document.getElementById('tour-data');
@@ -1376,10 +1406,11 @@
             if (!toast) return;
             clearTimeout(toastTimeout);
             msg.textContent = message;
-            toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'}\`;
-            toast.style.transform = 'translateY(0)';
+            toast.style.backgroundColor = isError ? '#ef4444' : '#f43f5e';
+            toast.style.borderColor = isError ? '#b91c1c' : '#831843';
+            toast.style.transform = 'translate(-50%, 0)';
             toast.style.opacity = '1';
-            toastTimeout = setTimeout(() => { toast.style.transform = 'translateY(-120%)'; toast.style.opacity = '0'; }, 3000);
+            toastTimeout = setTimeout(() => { toast.style.transform = 'translate(-50%, -120%)'; toast.style.opacity = '0'; }, 3000);
         }
         const loadScene = (sceneId, isBack = false) => {
             const scene = scenes.find(s => s.id === sceneId);
@@ -1871,3 +1902,4 @@
     </script>
 </body>
 </html>
+
