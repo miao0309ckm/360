@@ -267,7 +267,7 @@
         </div>
 
         <div class="mt-8 border-t-2 border-rose-200 pt-4 text-center">
-            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.5 (匯出功能修正)</span></p>
+            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.6 (動態載入匯出)</span></p>
             <p class="text-sm text-rose-600">回饋來信請洽：miao0309@miao.asia</p>
         </div>
         
@@ -1228,18 +1228,13 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                 currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
             }
             
-            // This function saves state for reloading the *editor*, not for export.
-            // We strip out large Base64 data to avoid hitting localStorage quota.
             const scenesToStore = JSON.parse(JSON.stringify(scenes));
             scenesToStore.forEach(scene => {
                 if (scene.url && (scene.url.startsWith('blob:') || scene.url.startsWith('data:'))) {
-                    // We can't save blob URLs, and we strip data URLs to save space.
-                    // Google Street View URLs (https://) will be preserved.
                     scene.url = scene.url.startsWith('https://') ? scene.url : ''; 
                 }
                 if(scene.markers) {
                     scene.markers.forEach(markerConfig => {
-                        // Also remove audio data from localStorage to save space.
                         if (markerConfig.data && markerConfig.data.audioUrl) {
                             delete markerConfig.data.audioUrl;
                         }
@@ -1262,7 +1257,6 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
             if (savedData) {
                 try {
                     let parsedScenes = JSON.parse(savedData);
-                    // Filter out scenes that had local images which are now gone.
                     parsedScenes = parsedScenes.filter(scene => scene.url);
 
                     if(parsedScenes.length > 0) {
@@ -1328,55 +1322,215 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
             }
         }
 
-
+        // =============================================
+        // ✨ NEW EXPORT FUNCTION (DYNAMIC BOOTLOADER)
+        // =============================================
         async function exportTour() {
-             if (!cachedLibs) {
-                showToast('必要資源載入失敗，無法匯出。請檢查網路連線並重新整理頁面。', true);
+            if (!cachedLibs) {
+                showToast('必要資源載入失敗，無法匯出。', true);
                 return;
-             }
-             showToast('正在打包您的導覽...', false);
-        
-             try {
-                // 1. Save current scene markers
+            }
+            showToast('正在打包您的導覽...', false);
+
+            try {
+                // Step 1: Finalize current scene data and convert all media to Base64
                 const currentScene = scenes.find(s => s.id === currentSceneId);
                 if (currentScene && markersPlugin) {
                     currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
                 }
-        
-                // 2. Deep copy scenes and convert ALL media blobs to Base64
+
                 const scenesForExport = JSON.parse(JSON.stringify(scenes));
                 showToast('正在處理媒體檔案...', false);
                 for (const scene of scenesForExport) {
-                    // Convert scene panorama
                     if (scene.url && scene.url.startsWith('blob:')) {
                         const response = await fetch(scene.url);
                         const blob = await response.blob();
                         scene.url = await blobToDataURL(blob);
                     }
-                    // Convert marker media
                     if (scene.markers) {
                         for (const markerConfig of scene.markers) {
-                            const data = markerConfig.data;
-                            if (data && data.audioUrl && data.audioUrl.startsWith('blob:')) {
-                                const response = await fetch(data.audioUrl);
+                            if (markerConfig.data && markerConfig.data.audioUrl && markerConfig.data.audioUrl.startsWith('blob:')) {
+                                const response = await fetch(markerConfig.data.audioUrl);
                                 const blob = await response.blob();
-                                data.audioUrl = await blobToDataURL(blob);
+                                markerConfig.data.audioUrl = await blobToDataURL(blob);
                             }
                         }
                     }
                 }
-        
+
                 if (!scenesForExport.length) {
-                    showToast('沒有可匯出的內容！', true);
-                    return;
+                    showToast('沒有可匯出的內容！', true); return;
                 }
 
-                // 3. Get libs from cache and build the HTML
+                // Step 2: Prepare content strings for injection
                 const { tailwindJs, threeJs, uEventJs, psvCss, psvJs, markersCss, markersJs } = cachedLibs;
                 const scenesDataString = JSON.stringify(scenesForExport);
                 const customCss = document.querySelector('style').innerHTML;
-        
-                // 4. Define the self-contained HTML template
+
+                const appLogicString = `
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const scenesDataElement = document.getElementById('data-tour');
+                        if (!scenesDataElement) { document.body.innerHTML = '<h1>錯誤：找不到導覽資料。</h1>'; return; }
+                        const scenes = JSON.parse(scenesDataElement.textContent);
+                        let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
+                        
+                        function showToast(message, isError = false) {
+                            const toast = document.getElementById('toast-notification'), msg = document.getElementById('toast-message');
+                            if (!toast) return;
+                            clearTimeout(toastTimeout);
+                            msg.textContent = message;
+                            toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'} show\`;
+                            toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
+                        }
+                        
+                        const loadScene = (sceneId, isBack = false) => {
+                            const scene = scenes.find(s => s.id === sceneId);
+                            if (!scene) return;
+                            if (!isBack && currentSceneId) sceneHistory.push(currentSceneId);
+                            document.getElementById('back-btn').classList.toggle('hidden', sceneHistory.length === 0);
+                            if (viewer) {
+                                viewer.setPanorama(scene.url, { transition: true, showLoader: true }).then(() => {
+                                    viewer.navbar.setCaption(\`<b class="font-bold" style="color: black; font-size: 16px; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;">\${scene.name}</b>\`);
+                                    markersPlugin.setMarkers(scene.markers || []);
+                                });
+                            } else {
+                                viewer = new PhotoSphereViewer.Viewer({
+                                    container: document.getElementById('viewer'), panorama: scene.url,
+                                    caption: \`<b class="font-bold" style="color: black; font-size: 16px; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;">\${scene.name}</b>\`,
+                                    navbar: ['zoom', 'caption', 'fullscreen'],
+                                    plugins: [ [PhotoSphereViewer.MarkersPlugin, { markers: scene.markers || [] }] ]
+                                });
+                                markersPlugin = viewer.getPlugin(PhotoSphereViewer.MarkersPlugin);
+                                markersPlugin.on('select-marker', (e, marker) => handleMarkerSelect(marker));
+                            }
+                            currentSceneId = sceneId;
+                        };
+                        const handleMarkerSelect = (marker) => {
+                            const data = marker.config.data;
+                            if (!data) return;
+                            if (data.type === 'link') loadScene(data.targetSceneId);
+                            else if (data.type === 'quiz') showQuiz(data);
+                            else if (data.type === 'embed') showEmbed(data);
+                            else if (data.type === 'info') {
+                                const contentPanelBody = document.getElementById('content-panel-body');
+                                let contentHTML = \`<h3 class="text-4xl font-bold mb-4 text-rose-600">\${data.title || '資訊'}</h3>\`;
+                                if (data.audioUrl) contentHTML += \`<audio controls src="\${data.audioUrl}" class="w-full mt-2"></audio>\`;
+                                if (data.imageUrl) contentHTML += \`<img src="\${data.imageUrl}" alt="Image" class="w-full border-2 border-pink-300 rounded-lg mt-2 cursor-pointer" onerror="this.style.display='none'">\`;
+                                if (data.content) contentHTML += \`<p class="mt-4 whitespace-pre-wrap">\${data.content}</p>\`;
+                                if (data.linkUrl) contentHTML += \`<a href="\${data.linkUrl}" target="_blank" rel="noopener noreferrer" class="pop-button mt-4 w-full text-center block bg-rose-400 hover:bg-rose-500 text-white">\${data.linkText || '了解更多'}</a>\`;
+                                contentPanelBody.innerHTML = contentHTML;
+                                document.getElementById('content-panel').classList.remove('hidden');
+                            }
+                        };
+                        const showEmbed = (embedData) => {
+                            document.getElementById('embed-title').textContent = embedData.title;
+                            let content = embedData.url.trim();
+                            if (!content.startsWith('<iframe')) content = \`<iframe src="\${content}" class="w-full h-full border-0" allowfullscreen></iframe>\`;
+                            document.getElementById('embed-content').innerHTML = content;
+                            document.getElementById('embed-display-modal').classList.remove('hidden');
+                        };
+                        const showQuiz = (quizData) => {
+                            currentQuizData = quizData;
+                            const modal = document.getElementById('quiz-display-modal'), question = document.getElementById('quiz-question'), answers = document.getElementById('quiz-answers'), actions = document.getElementById('quiz-action-buttons'), hint = document.getElementById('quiz-hint-container');
+                            question.textContent = quizData.question;
+                            answers.innerHTML = ''; actions.innerHTML = ''; hint.classList.add('hidden');
+                            switch(quizData.quizType) {
+                                case 'mc':
+                                    ['a', 'b', 'c', 'd'].forEach(opt => {
+                                        if(quizData.answers[opt]) {
+                                            const btn = document.createElement('button');
+                                            btn.className = 'pop-button bg-sky-300 hover:bg-sky-400 text-sky-800 p-4 text-left w-full text-lg';
+                                            btn.innerHTML = \`<span class="font-bold mr-2">\${opt.toUpperCase()}.</span> \${quizData.answers[opt]}\`;
+                                            btn.onclick = () => checkAnswer(opt === quizData.correctAnswer);
+                                            answers.appendChild(btn);
+                                        }
+                                    });
+                                    break;
+                                case 'sort':
+                                    const items = [...quizData.correctOrder].sort(() => Math.random() - 0.5);
+                                    items.forEach(itemText => { const itemEl = document.createElement('div'); itemEl.textContent = itemText; itemEl.className = 'sortable-item pop-button bg-white p-3 text-lg'; itemEl.draggable = true; answers.appendChild(itemEl); });
+                                    makeSortable(answers);
+                                    const checkSortBtn = document.createElement('button'); checkSortBtn.textContent = '確定答案'; checkSortBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkSortBtn.onclick = checkSortAnswer;
+                                    actions.appendChild(checkSortBtn);
+                                    break;
+                                case 'fill':
+                                    const questionHtml = quizData.question.replace(/___/g, '<input type="text" class="fill-answer-input mx-2 p-1 border-2 border-rose-400 rounded-lg w-32 bg-white">');
+                                    const questionP = document.createElement('p'); questionP.innerHTML = questionHtml; questionP.className = 'text-center text-2xl';
+                                    answers.appendChild(questionP);
+                                    const checkFillBtn = document.createElement('button'); checkFillBtn.textContent = '確定答案'; checkFillBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkFillBtn.onclick = checkFillAnswer;
+                                    actions.appendChild(checkFillBtn);
+                                    break;
+                            }
+                            const closeBtn = document.createElement('button');
+                            closeBtn.textContent = '關閉'; closeBtn.className = 'pop-button bg-gray-300 py-2 px-6 text-lg';
+                            closeBtn.onclick = () => modal.classList.add('hidden');
+                            actions.appendChild(closeBtn);
+                            modal.classList.remove('hidden');
+                        };
+                        const checkAnswer = (isCorrect) => {
+                            if (isCorrect) { 
+                                showToast('答對了！'); 
+                                document.getElementById('quiz-display-modal').classList.add('hidden'); 
+                                if(currentQuizData.targetSceneId) setTimeout(() => loadScene(currentQuizData.targetSceneId), 500); 
+                            } else { 
+                                showToast('答錯了！', true); 
+                                if (currentQuizData.hint) { 
+                                    document.getElementById('quiz-hint-text').textContent = \`提示：\${currentQuizData.hint}\`; 
+                                    document.getElementById('quiz-hint-container').classList.remove('hidden'); 
+                                } 
+                            }
+                        };
+                        function checkSortAnswer() { const currentOrder = [...document.getElementById('quiz-answers').querySelectorAll('.sortable-item')].map(item => item.textContent); checkAnswer(JSON.stringify(currentOrder) === JSON.stringify(currentQuizData.correctOrder)); }
+                        function checkFillAnswer() { const userInput = document.querySelector('.fill-answer-input').value.trim(); const correctAnswers = currentQuizData.answers.map(ans => ans.toLowerCase()); checkAnswer(correctAnswers.includes(userInput.toLowerCase())); }
+                        function makeSortable(container) { let dI = null; container.addEventListener('dragstart', e => { dI = e.target; setTimeout(() => e.target.classList.add('dragging'), 0); }); container.addEventListener('dragend', e => e.target.classList.remove('dragging')); container.addEventListener('dragover', e => { e.preventDefault(); const aE = getDragAfterElement(container, e.clientY); if (aE == null) container.appendChild(dI); else container.insertBefore(dI, aE); }); }
+                        function getDragAfterElement(container, y) { const dE = [...container.querySelectorAll('.sortable-item:not(.dragging)')]; return dE.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
+
+                        if (scenes && scenes.length > 0) { loadScene(scenes[0].id); } else { document.body.innerHTML = '<h1>找不到導覽資料。</h1>'; }
+                        document.getElementById('close-content-btn').addEventListener('click', () => document.getElementById('content-panel').classList.add('hidden'));
+                        document.getElementById('back-btn').addEventListener('click', () => { if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); });
+                        document.getElementById('close-embed-btn').addEventListener('click', () => { document.getElementById('embed-display-modal').classList.add('hidden'); document.getElementById('embed-content').innerHTML = ''; });
+                        const lightbox = document.getElementById('image-lightbox'), lightboxImage = document.getElementById('lightbox-image');
+                        document.getElementById('content-panel-body').addEventListener('click', (e) => {
+                            if (e.target.tagName === 'IMG') { lightboxImage.src = e.target.src; lightbox.classList.remove('hidden'); }
+                        });
+                        const closeLightbox = () => { lightbox.classList.add('hidden'); lightboxImage.src = ''; };
+                        document.getElementById('close-lightbox-btn').addEventListener('click', closeLightbox);
+                        lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+                    });
+                `;
+
+                const bootloaderJs = `
+                (function() {
+                    try {
+                        const injectStyle = (content) => {
+                            const style = document.createElement('style');
+                            style.textContent = content;
+                            document.head.appendChild(style);
+                        };
+                        const injectScript = (content) => {
+                            const script = document.createElement('script');
+                            script.textContent = content;
+                            document.head.appendChild(script);
+                        };
+                        injectStyle(
+                            document.getElementById('data-css-psv').textContent +
+                            document.getElementById('data-css-markers').textContent +
+                            document.getElementById('data-css-custom').textContent
+                        );
+                        injectScript(document.getElementById('data-js-tailwind').textContent);
+                        injectScript(document.getElementById('data-js-three').textContent);
+                        injectScript(document.getElementById('data-js-uevent').textContent);
+                        injectScript(document.getElementById('data-js-psv').textContent);
+                        injectScript(document.getElementById('data-js-markers').textContent);
+                        injectScript(document.getElementById('data-js-app').textContent);
+                    } catch (e) {
+                        document.body.innerHTML = '<h1>導覽載入失敗</h1><p style="white-space:pre-wrap;">' + e.message + '\\n' + e.stack + '</p>';
+                        console.error(e);
+                    }
+                })();
+                `;
+
+                // Step 3: Create the final HTML structure
                 const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -1384,187 +1538,57 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${scenesForExport[0].name || '360° 互動導覽'}</title>
     <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        ${psvCss}
-        ${markersCss}
-        ${customCss}
-    <\/style>
-    <script>${tailwindJs.replace(/<\/script/gi, '<\\/script')}<\/script>
 </head>
-<body class="text-rose-900">
-    <div id="viewer"></div>
-    <button id="back-btn" class="hidden pop-button bg-yellow-200 !rounded-full px-4 py-2 text-2xl">← 返回</button>
-    <div id="content-panel" class="panel hidden fixed top-0 right-0 h-full w-full max-w-sm bg-rose-50 border-l-2 border-rose-300 z-30 p-6 shadow-2xl">
-        <button id="close-content-btn" class="absolute top-4 right-4 text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
-        <div id="content-panel-body" class="text-rose-800 mt-16 overflow-y-auto h-[95%] text-lg"></div>
+<body>
+    <div id="viewer" style="width:100vw;height:100vh;"></div>
+    <button id="back-btn" class="hidden">← 返回</button>
+    <div id="content-panel" class="panel hidden">
+        <button id="close-content-btn">×</button>
+        <div id="content-panel-body"></div>
     </div>
-    <div id="quiz-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4">
-        <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-8 w-full max-w-lg">
-            <h3 id="quiz-question" class="text-4xl font-bold mb-8 text-center text-rose-600"></h3>
-            <div id="quiz-answers" class="space-y-3"></div>
-            <div id="quiz-hint-container" class="hidden mt-4 p-4 bg-red-100 border-2 border-red-400 text-red-800 font-semibold rounded-lg text-lg"><p id="quiz-hint-text"></p></div>
-            <div id="quiz-action-buttons" class="mt-8 flex justify-center gap-4"></div>
+    <div id="quiz-display-modal" class="hidden">
+        <div>
+            <h3 id="quiz-question"></h3>
+            <div id="quiz-answers"></div>
+            <div id="quiz-hint-container" class="hidden"><p id="quiz-hint-text"></p></div>
+            <div id="quiz-action-buttons"></div>
         </div>
     </div>
-    <div id="embed-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 md:p-8">
-        <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-2 w-full max-w-4xl h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center p-2 border-b-2 border-rose-200 flex-shrink-0">
-                <h3 id="embed-title" class="text-2xl font-bold text-rose-600 px-2"></h3>
-                <button id="close-embed-btn" class="text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+    <div id="embed-display-modal" class="hidden">
+        <div>
+            <div>
+                <h3 id="embed-title"></h3>
+                <button id="close-embed-btn">×</button>
             </div>
-            <div id="embed-content" class="flex-grow bg-white overflow-hidden rounded-b-xl"></div>
+            <div id="embed-content"></div>
         </div>
     </div>
-    <div id="toast-notification" class="fixed top-5 left-1/2 -translate-x-1/2 bg-rose-500 text-white py-3 px-6 border-2 border-rose-800 shadow-lg rounded-full">
-        <p id="toast-message" class="font-bold text-lg"></p>
+    <div id="toast-notification">
+        <p id="toast-message"></p>
     </div>
-    <div id="image-lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
-        <button id="close-lightbox-btn" class="absolute top-4 right-4 text-white text-5xl font-black">&times;</button>
-        <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
+    <div id="image-lightbox" class="hidden">
+        <button id="close-lightbox-btn">&times;</button>
+        <img id="lightbox-image" src="">
     </div>
 
-    <script id="tour-data" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
-    
-    <script>${threeJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script>${uEventJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script>${psvJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script>${markersJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <!-- Data Blocks -->
+    <script id="data-tour" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-css-psv" type="text/plain">${psvCss.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-css-markers" type="text/plain">${markersCss.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-css-custom" type="text/plain">${customCss.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-js-tailwind" type="text/plain">${tailwindJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-js-three" type="text/plain">${threeJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-js-uevent" type="text/plain">${uEventJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-js-psv" type="text/plain">${psvJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-js-markers" type="text/plain">${markersJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="data-js-app" type="text/plain">${appLogicString.replace(/<\/script/gi, '<\\/script')}<\/script>
 
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const scenesDataElement = document.getElementById('tour-data');
-        if (!scenesDataElement) { document.body.innerHTML = '<h1>錯誤：找不到導覽資料。</h1>'; return; }
-        const scenes = JSON.parse(scenesDataElement.textContent);
-        let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
-        
-        function showToast(message, isError = false) {
-            const toast = document.getElementById('toast-notification'), msg = document.getElementById('toast-message');
-            if (!toast) return;
-            clearTimeout(toastTimeout);
-            msg.textContent = message;
-            toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'} show\`;
-            toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-
-        const loadScene = (sceneId, isBack = false) => {
-            const scene = scenes.find(s => s.id === sceneId);
-            if (!scene) return;
-            if (!isBack && currentSceneId) sceneHistory.push(currentSceneId);
-            document.getElementById('back-btn').classList.toggle('hidden', sceneHistory.length === 0);
-            if (viewer) {
-                viewer.setPanorama(scene.url, { transition: true, showLoader: true }).then(() => {
-                    viewer.navbar.setCaption(\`<b class="font-bold" style="color: black; font-size: 16px; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;">\${scene.name}</b>\`);
-                    markersPlugin.setMarkers(scene.markers || []);
-                });
-            } else {
-                viewer = new PhotoSphereViewer.Viewer({
-                    container: document.getElementById('viewer'), panorama: scene.url,
-                    caption: \`<b class="font-bold" style="color: black; font-size: 16px; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;">\${scene.name}</b>\`,
-                    navbar: ['zoom', 'caption', 'fullscreen'],
-                    plugins: [ [PhotoSphereViewer.MarkersPlugin, { markers: scene.markers || [] }] ]
-                });
-                markersPlugin = viewer.getPlugin(PhotoSphereViewer.MarkersPlugin);
-                markersPlugin.on('select-marker', (e, marker) => handleMarkerSelect(marker));
-            }
-            currentSceneId = sceneId;
-        };
-        const handleMarkerSelect = (marker) => {
-            const data = marker.config.data;
-            if (!data) return;
-            if (data.type === 'link') loadScene(data.targetSceneId);
-            else if (data.type === 'quiz') showQuiz(data);
-            else if (data.type === 'embed') showEmbed(data);
-            else if (data.type === 'info') {
-                const contentPanelBody = document.getElementById('content-panel-body');
-                let contentHTML = \`<h3 class="text-4xl font-bold mb-4 text-rose-600">\${data.title || '資訊'}</h3>\`;
-                if (data.audioUrl) contentHTML += \`<audio controls src="\${data.audioUrl}" class="w-full mt-2"></audio>\`;
-                if (data.imageUrl) contentHTML += \`<img src="\${data.imageUrl}" alt="Image" class="w-full border-2 border-pink-300 rounded-lg mt-2 cursor-pointer" onerror="this.style.display='none'">\`;
-                if (data.content) contentHTML += \`<p class="mt-4 whitespace-pre-wrap">\${data.content}</p>\`;
-                if (data.linkUrl) contentHTML += \`<a href="\${data.linkUrl}" target="_blank" rel="noopener noreferrer" class="pop-button mt-4 w-full text-center block bg-rose-400 hover:bg-rose-500 text-white">\${data.linkText || '了解更多'}</a>\`;
-                contentPanelBody.innerHTML = contentHTML;
-                document.getElementById('content-panel').classList.remove('hidden');
-            }
-        };
-        const showEmbed = (embedData) => {
-            document.getElementById('embed-title').textContent = embedData.title;
-            let content = embedData.url.trim();
-            if (!content.startsWith('<iframe')) content = \`<iframe src="\${content}" class="w-full h-full border-0" allowfullscreen></iframe>\`;
-            document.getElementById('embed-content').innerHTML = content;
-            document.getElementById('embed-display-modal').classList.remove('hidden');
-        };
-        const showQuiz = (quizData) => {
-            currentQuizData = quizData;
-            const modal = document.getElementById('quiz-display-modal'), question = document.getElementById('quiz-question'), answers = document.getElementById('quiz-answers'), actions = document.getElementById('quiz-action-buttons'), hint = document.getElementById('quiz-hint-container');
-            question.textContent = quizData.question;
-            answers.innerHTML = ''; actions.innerHTML = ''; hint.classList.add('hidden');
-            switch(quizData.quizType) {
-                case 'mc':
-                    ['a', 'b', 'c', 'd'].forEach(opt => {
-                        if(quizData.answers[opt]) {
-                            const btn = document.createElement('button');
-                            btn.className = 'pop-button bg-sky-300 hover:bg-sky-400 text-sky-800 p-4 text-left w-full text-lg';
-                            btn.innerHTML = \`<span class="font-bold mr-2">\${opt.toUpperCase()}.</span> \${quizData.answers[opt]}\`;
-                            btn.onclick = () => checkAnswer(opt === quizData.correctAnswer);
-                            answers.appendChild(btn);
-                        }
-                    });
-                    break;
-                case 'sort':
-                    const items = [...quizData.correctOrder].sort(() => Math.random() - 0.5);
-                    items.forEach(itemText => { const itemEl = document.createElement('div'); itemEl.textContent = itemText; itemEl.className = 'sortable-item pop-button bg-white p-3 text-lg'; itemEl.draggable = true; answers.appendChild(itemEl); });
-                    makeSortable(answers);
-                    const checkSortBtn = document.createElement('button'); checkSortBtn.textContent = '確定答案'; checkSortBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkSortBtn.onclick = checkSortAnswer;
-                    actions.appendChild(checkSortBtn);
-                    break;
-                case 'fill':
-                    const questionHtml = quizData.question.replace(/___/g, '<input type="text" class="fill-answer-input mx-2 p-1 border-2 border-rose-400 rounded-lg w-32 bg-white">');
-                    const questionP = document.createElement('p'); questionP.innerHTML = questionHtml; questionP.className = 'text-center text-2xl';
-                    answers.appendChild(questionP);
-                    const checkFillBtn = document.createElement('button'); checkFillBtn.textContent = '確定答案'; checkFillBtn.className = 'pop-button bg-lime-400 py-2 px-6 text-lg'; checkFillBtn.onclick = checkFillAnswer;
-                    actions.appendChild(checkFillBtn);
-                    break;
-            }
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = '關閉'; closeBtn.className = 'pop-button bg-gray-300 py-2 px-6 text-lg';
-            closeBtn.onclick = () => modal.classList.add('hidden');
-            actions.appendChild(closeBtn);
-            modal.classList.remove('hidden');
-        };
-        const checkAnswer = (isCorrect) => {
-            if (isCorrect) { 
-                showToast('答對了！'); 
-                document.getElementById('quiz-display-modal').classList.add('hidden'); 
-                if(currentQuizData.targetSceneId) setTimeout(() => loadScene(currentQuizData.targetSceneId), 500); 
-            } else { 
-                showToast('答錯了！', true); 
-                if (currentQuizData.hint) { 
-                    document.getElementById('quiz-hint-text').textContent = \`提示：\${currentQuizData.hint}\`; 
-                    document.getElementById('quiz-hint-container').classList.remove('hidden'); 
-                } 
-            }
-        };
-        function checkSortAnswer() { const currentOrder = [...document.getElementById('quiz-answers').querySelectorAll('.sortable-item')].map(item => item.textContent); checkAnswer(JSON.stringify(currentOrder) === JSON.stringify(currentQuizData.correctOrder)); }
-        function checkFillAnswer() { const userInput = document.querySelector('.fill-answer-input').value.trim(); const correctAnswers = currentQuizData.answers.map(ans => ans.toLowerCase()); checkAnswer(correctAnswers.includes(userInput.toLowerCase())); }
-        function makeSortable(container) { let dI = null; container.addEventListener('dragstart', e => { dI = e.target; setTimeout(() => e.target.classList.add('dragging'), 0); }); container.addEventListener('dragend', e => e.target.classList.remove('dragging')); container.addEventListener('dragover', e => { e.preventDefault(); const aE = getDragAfterElement(container, e.clientY); if (aE == null) container.appendChild(dI); else container.insertBefore(dI, aE); }); }
-        function getDragAfterElement(container, y) { const dE = [...container.querySelectorAll('.sortable-item:not(.dragging)')]; return dE.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
-
-        if (scenes && scenes.length > 0) { loadScene(scenes[0].id); } else { document.body.innerHTML = '<h1>找不到導覽資料。</h1>'; }
-        document.getElementById('close-content-btn').addEventListener('click', () => document.getElementById('content-panel').classList.add('hidden'));
-        document.getElementById('back-btn').addEventListener('click', () => { if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); });
-        document.getElementById('close-embed-btn').addEventListener('click', () => { document.getElementById('embed-display-modal').classList.add('hidden'); document.getElementById('embed-content').innerHTML = ''; });
-        const lightbox = document.getElementById('image-lightbox'), lightboxImage = document.getElementById('lightbox-image');
-        document.getElementById('content-panel-body').addEventListener('click', (e) => {
-            if (e.target.tagName === 'IMG') { lightboxImage.src = e.target.src; lightbox.classList.remove('hidden'); }
-        });
-        const closeLightbox = () => { lightbox.classList.add('hidden'); lightboxImage.src = ''; };
-        document.getElementById('close-lightbox-btn').addEventListener('click', closeLightbox);
-        lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
-    });
-    <\/script>
+    <!-- Bootloader -->
+    <script>${bootloaderJs.replace(/<\/script/gi, '<\\/script')}<\/script>
 </body>
 </html>`;
-        
-                // 5. Create blob and trigger download
+
+                // Step 4: Create blob and trigger download
                 const blob = new Blob([exportHtmlTemplate], { type: 'text/html' });
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
@@ -1574,11 +1598,11 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                 document.body.removeChild(a);
                 URL.revokeObjectURL(a.href);
                 showToast('導覽檔案已成功匯出！');
-        
-             } catch(error) {
+
+            } catch (error) {
                 console.error('打包導覽時發生錯誤:', error);
                 showToast(`打包導覽失敗: ${error.message}`, true);
-             }
+            }
         }
 
 
@@ -1591,7 +1615,8 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
 
             reader.onload = (e) => {
                 const htmlContent = e.target.result;
-                const match = htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
+                const match = htmlContent.match(/<script id="data-tour"[^>]*>([\s\S]*?)<\/script>/) || htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
+
 
                 if (match && match[1]) {
                     try {
@@ -1938,3 +1963,4 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
     </script>
 </body>
 </html>
+
