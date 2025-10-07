@@ -13,6 +13,7 @@
     <script src="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/photo-sphere-viewer.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/photo-sphere-viewer@4/dist/plugins/markers.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -262,12 +263,12 @@
             <div id="help-content" class="hidden mt-4 text-left text-rose-800 text-lg space-y-2 px-4">
                 <p>1. <strong>建立場景</strong>：點擊「上傳檔案」或「Google街景」建立您的第一個 360° 場景。</p>
                 <p>2. <strong>編輯內容</strong>：進入「編輯模式」後，您可以在場景中新增各式互動標記 (資訊、連結、測驗等)。</p>
-                <p>3. <strong>管理與匯出</strong>：在「場景列表」中管理所有場景，完成後點擊「分享/匯出」即可產生獨立的 HTML 導覽檔案！</p>
+                <p>3. <strong>管理與匯出</strong>：在「場景列表」中管理所有場景，完成後點擊「分享/匯出」即可產生一個 <b>.zip</b> 壓縮檔。<b>解壓縮後點擊 index.html 即可瀏覽</b>！</p>
             </div>
         </div>
 
         <div class="mt-8 border-t-2 border-rose-200 pt-4 text-center">
-            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.7 (直出匯出修正)</span></p>
+            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.8 (ZIP 壓縮包匯出)</span></p>
             <p class="text-sm text-rose-600">回饋來信請洽：miao0309@miao.asia</p>
         </div>
         
@@ -479,7 +480,7 @@
                  </div>
              </div>
              <div class="my-4">
-                 <button id="export-tour-btn" class="pop-button w-full text-center block bg-rose-400 hover:bg-rose-500 text-white py-2 px-4 text-lg">分享/匯出</button>
+                 <button id="export-tour-btn" class="pop-button w-full text-center block bg-rose-400 hover:bg-rose-500 text-white py-2 px-4 text-lg">分享/匯出 (.zip)</button>
              </div>
              <div class="my-4">
                <button id="clear-tour-btn" class="pop-button w-full text-center block bg-red-400 hover:bg-red-500 text-white py-2 px-4 text-lg">重設導覽</button>
@@ -1323,17 +1324,30 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
         }
 
         // =============================================
-        // ✨ NEW EXPORT FUNCTION (DIRECT INJECTION)
+        // ✨ NEW EXPORT FUNCTION (ZIP PACKAGE)
         // =============================================
         async function exportTour() {
-            if (!cachedLibs) {
-                showToast('必要資源載入失敗，無法匯出。', true);
+            if (!cachedLibs || typeof JSZip === 'undefined') {
+                showToast('必要資源 (JSZip) 載入失敗，無法匯出。', true);
                 return;
             }
-            showToast('正在打包您的導覽...', false);
+            showToast('正在建立您的導覽壓縮檔...', false);
 
             try {
-                // Step 1: Finalize current scene data and convert all media to Base64
+                const zip = new JSZip();
+                const libsFolder = zip.folder('libs');
+                const assetsFolder = zip.folder('assets');
+
+                // Step 1: Add libraries to zip
+                libsFolder.file('photo-sphere-viewer.min.css', cachedLibs.psvCss);
+                libsFolder.file('markers.min.css', cachedLibs.markersCss);
+                libsFolder.file('tailwind.js', cachedLibs.tailwindJs);
+                libsFolder.file('three.min.js', cachedLibs.threeJs);
+                libsFolder.file('uevent.min.js', cachedLibs.uEventJs);
+                libsFolder.file('photo-sphere-viewer.min.js', cachedLibs.psvJs);
+                libsFolder.file('markers.min.js', cachedLibs.markersJs);
+                
+                // Step 2: Finalize scene data and process assets
                 const currentScene = scenes.find(s => s.id === currentSceneId);
                 if (currentScene && markersPlugin) {
                     currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
@@ -1341,37 +1355,53 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
 
                 const scenesForExport = JSON.parse(JSON.stringify(scenes));
                 showToast('正在處理媒體檔案...', false);
-                for (const scene of scenesForExport) {
+
+                const assetPromises = scenesForExport.flatMap((scene, sceneIndex) => {
+                    const scenePromises = [];
+                    // Process scene panorama
                     if (scene.url && scene.url.startsWith('blob:')) {
-                        const response = await fetch(scene.url);
-                        const blob = await response.blob();
-                        scene.url = await blobToDataURL(blob);
+                        const extension = scene.name.split('.').pop() || 'jpg';
+                        const fileName = `scene-${sceneIndex}.${extension}`;
+                        scenePromises.push(
+                            fetch(scene.url).then(res => res.blob()).then(blob => {
+                                assetsFolder.file(fileName, blob);
+                                scene.url = `assets/${fileName}`;
+                            })
+                        );
                     }
+                    // Process markers media
                     if (scene.markers) {
-                        for (const markerConfig of scene.markers) {
+                        scene.markers.forEach((markerConfig, markerIndex) => {
                             if (markerConfig.data && markerConfig.data.audioUrl && markerConfig.data.audioUrl.startsWith('blob:')) {
-                                const response = await fetch(markerConfig.data.audioUrl);
-                                const blob = await response.blob();
-                                markerConfig.data.audioUrl = await blobToDataURL(blob);
+                                const fileName = `audio-${sceneIndex}-${markerIndex}.webm`;
+                                scenePromises.push(
+                                    fetch(markerConfig.data.audioUrl).then(res => res.blob()).then(blob => {
+                                        assetsFolder.file(fileName, blob);
+                                        markerConfig.data.audioUrl = `assets/${fileName}`;
+                                    })
+                                );
                             }
-                        }
+                        });
                     }
-                }
+                    return scenePromises;
+                });
+                
+                await Promise.all(assetPromises);
 
                 if (!scenesForExport.length) {
                     showToast('沒有可匯出的內容！', true); return;
                 }
+                
+                // Step 3: Create tour-data.js
+                zip.file('tour-data.js', `const tourData = ${JSON.stringify(scenesForExport, null, 2)};`);
 
-                // Step 2: Prepare content strings for injection
-                const { tailwindJs, threeJs, uEventJs, psvCss, psvJs, markersCss, markersJs } = cachedLibs;
-                const scenesDataString = JSON.stringify(scenesForExport);
-                const customCss = document.querySelector('style').innerHTML;
-
+                // Step 4: Create main application logic file (app.js)
                 const appLogicString = `
                     document.addEventListener('DOMContentLoaded', () => {
-                        const scenesDataElement = document.getElementById('tour-data');
-                        if (!scenesDataElement) { document.body.innerHTML = '<h1>錯誤：找不到導覽資料。</h1>'; return; }
-                        const scenes = JSON.parse(scenesDataElement.textContent);
+                        if (typeof tourData === 'undefined' || !tourData.length) {
+                             document.body.innerHTML = '<h1>錯誤：找不到導覽資料 (tour-data.js)。</h1>'; return;
+                        }
+                        const scenes = tourData;
                         let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
                         
                         function showToast(message, isError = false) {
@@ -1485,7 +1515,7 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                         function makeSortable(container) { let dI = null; container.addEventListener('dragstart', e => { dI = e.target; setTimeout(() => e.target.classList.add('dragging'), 0); }); container.addEventListener('dragend', e => e.target.classList.remove('dragging')); container.addEventListener('dragover', e => { e.preventDefault(); const aE = getDragAfterElement(container, e.clientY); if (aE == null) container.appendChild(dI); else container.insertBefore(dI, aE); }); }
                         function getDragAfterElement(container, y) { const dE = [...container.querySelectorAll('.sortable-item:not(.dragging)')]; return dE.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
 
-                        if (scenes && scenes.length > 0) { loadScene(scenes[0].id); } else { document.body.innerHTML = '<h1>找不到導覽資料。</h1>'; }
+                        loadScene(scenes[0].id);
                         document.getElementById('close-content-btn').addEventListener('click', () => document.getElementById('content-panel').classList.add('hidden'));
                         document.getElementById('back-btn').addEventListener('click', () => { if (sceneHistory.length > 0) loadScene(sceneHistory.pop(), true); });
                         document.getElementById('close-embed-btn').addEventListener('click', () => { document.getElementById('embed-display-modal').classList.add('hidden'); document.getElementById('embed-content').innerHTML = ''; });
@@ -1498,8 +1528,9 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                         lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
                     });
                 `;
+                zip.file('app.js', appLogicString);
 
-                // Step 3: Create the final HTML structure
+                // Step 5: Create the main index.html file
                 const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -1507,15 +1538,12 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${scenesForExport[0].name || '360° 互動導覽'}</title>
     <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        ${psvCss}
-        ${markersCss}
-        ${customCss}
-    </style>
-    <script>${tailwindJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <link rel="stylesheet" href="libs/photo-sphere-viewer.min.css">
+    <link rel="stylesheet" href="libs/markers.min.css">
+    <style>${document.querySelector('style').innerHTML}<\/style>
+    <script src="libs/tailwind.js"><\/script>
 </head>
 <body class="text-rose-900">
-    
     <div id="viewer"></div>
     <button id="back-btn" class="hidden pop-button bg-yellow-200 !rounded-full px-4 py-2 text-2xl">← 返回</button>
     <div id="content-panel" class="panel hidden fixed top-0 right-0 h-full w-full max-w-sm bg-rose-50 border-l-2 border-rose-300 z-30 p-6 shadow-2xl">
@@ -1547,29 +1575,28 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
         <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
     </div>
 
-    <script id="tour-data" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
-    
-    <script>${threeJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script>${uEventJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script>${psvJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script>${markersJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    
-    <script>
-        ${appLogicString.replace(/<\/script/gi, '<\\/script')}
-    <\/script>
+    <script src="libs/three.min.js"><\/script>
+    <script src="libs/uevent.min.js"><\/script>
+    <script src="libs/photo-sphere-viewer.min.js"><\/script>
+    <script src="libs/markers.min.js"><\/script>
+    <script src="tour-data.js"><\/script>
+    <script src="app.js"><\/script>
 </body>
 </html>`;
-
-                // Step 4: Create blob and trigger download
-                const blob = new Blob([exportHtmlTemplate], { type: 'text/html' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `tour-${Date.now()}.html`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(a.href);
-                showToast('導覽檔案已成功匯出！');
+                zip.file('index.html', exportHtmlTemplate);
+                
+                // Step 6: Generate and download the zip file
+                showToast('正在產生壓縮檔...');
+                zip.generateAsync({ type: 'blob' }).then(blob => {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `tour-專案.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+                    showToast('導覽壓縮檔已成功匯出！');
+                });
 
             } catch (error) {
                 console.error('打包導覽時發生錯誤:', error);
@@ -1587,7 +1614,7 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
 
             reader.onload = (e) => {
                 const htmlContent = e.target.result;
-                const match = htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
+                 const match = htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
 
                 if (match && match[1]) {
                     try {
