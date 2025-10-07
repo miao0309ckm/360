@@ -267,7 +267,7 @@
         </div>
 
         <div class="mt-8 border-t-2 border-rose-200 pt-4 text-center">
-            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.6 (動態載入匯出)</span></p>
+            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.7 (直出匯出修正)</span></p>
             <p class="text-sm text-rose-600">回饋來信請洽：miao0309@miao.asia</p>
         </div>
         
@@ -1323,7 +1323,7 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
         }
 
         // =============================================
-        // ✨ NEW EXPORT FUNCTION (DYNAMIC BOOTLOADER)
+        // ✨ NEW EXPORT FUNCTION (DIRECT INJECTION)
         // =============================================
         async function exportTour() {
             if (!cachedLibs) {
@@ -1369,7 +1369,7 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
 
                 const appLogicString = `
                     document.addEventListener('DOMContentLoaded', () => {
-                        const scenesDataElement = document.getElementById('data-tour');
+                        const scenesDataElement = document.getElementById('tour-data');
                         if (!scenesDataElement) { document.body.innerHTML = '<h1>錯誤：找不到導覽資料。</h1>'; return; }
                         const scenes = JSON.parse(scenesDataElement.textContent);
                         let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
@@ -1499,37 +1499,6 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                     });
                 `;
 
-                const bootloaderJs = `
-                (function() {
-                    try {
-                        const injectStyle = (content) => {
-                            const style = document.createElement('style');
-                            style.textContent = content;
-                            document.head.appendChild(style);
-                        };
-                        const injectScript = (content) => {
-                            const script = document.createElement('script');
-                            script.textContent = content;
-                            document.head.appendChild(script);
-                        };
-                        injectStyle(
-                            document.getElementById('data-css-psv').textContent +
-                            document.getElementById('data-css-markers').textContent +
-                            document.getElementById('data-css-custom').textContent
-                        );
-                        injectScript(document.getElementById('data-js-tailwind').textContent);
-                        injectScript(document.getElementById('data-js-three').textContent);
-                        injectScript(document.getElementById('data-js-uevent').textContent);
-                        injectScript(document.getElementById('data-js-psv').textContent);
-                        injectScript(document.getElementById('data-js-markers').textContent);
-                        injectScript(document.getElementById('data-js-app').textContent);
-                    } catch (e) {
-                        document.body.innerHTML = '<h1>導覽載入失敗</h1><p style="white-space:pre-wrap;">' + e.message + '\\n' + e.stack + '</p>';
-                        console.error(e);
-                    }
-                })();
-                `;
-
                 // Step 3: Create the final HTML structure
                 const exportHtmlTemplate = `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1538,53 +1507,56 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${scenesForExport[0].name || '360° 互動導覽'}</title>
     <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        ${psvCss}
+        ${markersCss}
+        ${customCss}
+    </style>
+    <script>${tailwindJs.replace(/<\/script/gi, '<\\/script')}<\/script>
 </head>
-<body>
-    <div id="viewer" style="width:100vw;height:100vh;"></div>
-    <button id="back-btn" class="hidden">← 返回</button>
-    <div id="content-panel" class="panel hidden">
-        <button id="close-content-btn">×</button>
-        <div id="content-panel-body"></div>
+<body class="text-rose-900">
+    
+    <div id="viewer"></div>
+    <button id="back-btn" class="hidden pop-button bg-yellow-200 !rounded-full px-4 py-2 text-2xl">← 返回</button>
+    <div id="content-panel" class="panel hidden fixed top-0 right-0 h-full w-full max-w-sm bg-rose-50 border-l-2 border-rose-300 z-30 p-6 shadow-2xl">
+        <button id="close-content-btn" class="absolute top-4 right-4 text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
+        <div id="content-panel-body" class="text-rose-800 mt-16 overflow-y-auto h-[95%] text-lg"></div>
     </div>
-    <div id="quiz-display-modal" class="hidden">
-        <div>
-            <h3 id="quiz-question"></h3>
-            <div id="quiz-answers"></div>
-            <div id="quiz-hint-container" class="hidden"><p id="quiz-hint-text"></p></div>
-            <div id="quiz-action-buttons"></div>
+    <div id="quiz-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4">
+        <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-8 w-full max-w-lg">
+            <h3 id="quiz-question" class="text-4xl font-bold mb-8 text-center text-rose-600"></h3>
+            <div id="quiz-answers" class="space-y-3"></div>
+            <div id="quiz-hint-container" class="hidden mt-4 p-4 bg-red-100 border-2 border-red-400 text-red-800 font-semibold rounded-lg text-lg"><p id="quiz-hint-text"></p></div>
+            <div id="quiz-action-buttons" class="mt-8 flex justify-center gap-4"></div>
         </div>
     </div>
-    <div id="embed-display-modal" class="hidden">
-        <div>
-            <div>
-                <h3 id="embed-title"></h3>
-                <button id="close-embed-btn">×</button>
+    <div id="embed-display-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 md:p-8">
+        <div class="bg-pink-100 rounded-2xl border-2 border-rose-400 shadow-xl p-2 w-full max-w-4xl h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center p-2 border-b-2 border-rose-200 flex-shrink-0">
+                <h3 id="embed-title" class="text-2xl font-bold text-rose-600 px-2"></h3>
+                <button id="close-embed-btn" class="text-rose-400 hover:text-rose-600 text-5xl font-black">×</button>
             </div>
-            <div id="embed-content"></div>
+            <div id="embed-content" class="flex-grow bg-white overflow-hidden rounded-b-xl"></div>
         </div>
     </div>
-    <div id="toast-notification">
-        <p id="toast-message"></p>
+    <div id="toast-notification" class="fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full" style="transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-120%); opacity: 0; z-index: 60;">
+        <p id="toast-message" class="font-bold text-lg"></p>
     </div>
-    <div id="image-lightbox" class="hidden">
-        <button id="close-lightbox-btn">&times;</button>
-        <img id="lightbox-image" src="">
+    <div id="image-lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
+        <button id="close-lightbox-btn" class="absolute top-4 right-4 text-white text-5xl font-black">&times;</button>
+        <img id="lightbox-image" src="" alt="放大的圖片" class="max-w-full max-h-full object-contain">
     </div>
 
-    <!-- Data Blocks -->
-    <script id="data-tour" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-css-psv" type="text/plain">${psvCss.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-css-markers" type="text/plain">${markersCss.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-css-custom" type="text/plain">${customCss.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-js-tailwind" type="text/plain">${tailwindJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-js-three" type="text/plain">${threeJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-js-uevent" type="text/plain">${uEventJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-js-psv" type="text/plain">${psvJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-js-markers" type="text/plain">${markersJs.replace(/<\/script/gi, '<\\/script')}<\/script>
-    <script id="data-js-app" type="text/plain">${appLogicString.replace(/<\/script/gi, '<\\/script')}<\/script>
-
-    <!-- Bootloader -->
-    <script>${bootloaderJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script id="tour-data" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
+    
+    <script>${threeJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script>${uEventJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script>${psvJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script>${markersJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    
+    <script>
+        ${appLogicString.replace(/<\/script/gi, '<\\/script')}
+    <\/script>
 </body>
 </html>`;
 
@@ -1615,8 +1587,7 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
 
             reader.onload = (e) => {
                 const htmlContent = e.target.result;
-                const match = htmlContent.match(/<script id="data-tour"[^>]*>([\s\S]*?)<\/script>/) || htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
-
+                const match = htmlContent.match(/<script id="tour-data"[^>]*>([\s\S]*?)<\/script>/);
 
                 if (match && match[1]) {
                     try {
