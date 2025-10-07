@@ -235,8 +235,8 @@
                 <input type="password" id="initial-gsv-api-key" placeholder="請在此貼上您的 API 金鑰" class="custom-input mt-1">
                 <a href="https://developers.google.com/maps/documentation/streetview/get-api-key" target="_blank" class="mt-1 text-xs text-blue-600 hover:underline">如何取得金鑰？(需要綁定付款方式)</a>
              </div>
-              <input type="url" id="initial-gsv-url" class="custom-input text-lg" placeholder="在此貼上 Google 地圖街景網址">
-              <button id="initial-import-gsv-btn" class="pop-button w-full bg-lime-300 hover:bg-lime-400 text-lime-900 py-3 px-8 text-xl">從網址匯入</button>
+               <input type="url" id="initial-gsv-url" class="custom-input text-lg" placeholder="在此貼上 Google 地圖街景網址">
+               <button id="initial-import-gsv-btn" class="pop-button w-full bg-lime-300 hover:bg-lime-400 text-lime-900 py-3 px-8 text-xl">從網址匯入</button>
         </div>
 
         <div id="import-panel" class="hidden space-y-4">
@@ -267,7 +267,7 @@
         </div>
 
         <div class="mt-8 border-t-2 border-rose-200 pt-4 text-center">
-            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.4 (離線匯出修正版)</span></p>
+            <p class="font-bold text-base text-rose-800">作者: Kang-miao Cheng <span class="font-normal text-sm">版本 1.3.5 (匯出功能修正)</span></p>
             <p class="text-sm text-rose-600">回饋來信請洽：miao0309@miao.asia</p>
         </div>
         
@@ -420,7 +420,7 @@
                 </div>
                 
                 <div id="embed-marker-form" class="space-y-4">
-                       <div>
+                        <div>
                             <label for="marker-embed-title" class="block mb-1 font-bold">標題</label>
                             <input type="text" id="marker-embed-title" class="custom-input" placeholder="內嵌內容的標題 (必填)">
                         </div>
@@ -482,7 +482,7 @@
                  <button id="export-tour-btn" class="pop-button w-full text-center block bg-rose-400 hover:bg-rose-500 text-white py-2 px-4 text-lg">分享/匯出</button>
              </div>
              <div class="my-4">
-                <button id="clear-tour-btn" class="pop-button w-full text-center block bg-red-400 hover:bg-red-500 text-white py-2 px-4 text-lg">重設導覽</button>
+               <button id="clear-tour-btn" class="pop-button w-full text-center block bg-red-400 hover:bg-red-500 text-white py-2 px-4 text-lg">重設導覽</button>
              </div>
         </div>
         
@@ -873,24 +873,24 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                  if (type === 'info') { document.getElementById('marker-info-title').value = existingData.title || ''; document.getElementById('marker-info-image-url').value = existingData.imageUrl || ''; document.getElementById('marker-info-content').value = existingData.content || ''; document.getElementById('marker-info-link-url').value = existingData.linkUrl || ''; document.getElementById('marker-info-link-text').value = existingData.linkText || ''; }
                  else if (type === 'link') { document.getElementById('marker-link-label').value = existingData.label || '';}
                  else if (type === 'quiz') { 
-                     const quizTypeSelect = document.getElementById('quiz-type-select');
-                     quizTypeSelect.value = existingData.quizType; 
-                     quizTypeSelect.dispatchEvent(new Event('change')); 
-                     document.getElementById('marker-quiz-hint').value = existingData.hint || ''; 
-                     if (existingData.quizType === 'mc') { 
-                         document.getElementById('marker-quiz-mc-question').value = existingData.question || ''; 
-                         ['a', 'b', 'c', 'd'].forEach(opt => { document.getElementById(`marker-quiz-mc-answer-${opt}`).value = existingData.answers[opt] || ''; }); 
-                         if(existingData.correctAnswer) { 
-                             const radio = document.querySelector(`input[name="mcCorrectAnswer"][value="${existingData.correctAnswer}"]`); 
-                             if(radio) radio.checked = true; 
-                         } 
-                     } else if (existingData.quizType === 'sort') { 
-                         document.getElementById('marker-quiz-sort-question').value = existingData.question || ''; 
-                         document.getElementById('marker-quiz-sort-items').value = (existingData.correctOrder || []).join('\n'); 
-                     } else if (existingData.quizType === 'fill') { 
-                         document.getElementById('marker-quiz-fill-question').value = existingData.question || ''; 
-                         document.getElementById('marker-quiz-fill-answer').value = (existingData.answers || []).join(','); 
-                     } 
+                      const quizTypeSelect = document.getElementById('quiz-type-select');
+                      quizTypeSelect.value = existingData.quizType; 
+                      quizTypeSelect.dispatchEvent(new Event('change')); 
+                      document.getElementById('marker-quiz-hint').value = existingData.hint || ''; 
+                      if (existingData.quizType === 'mc') { 
+                          document.getElementById('marker-quiz-mc-question').value = existingData.question || ''; 
+                          ['a', 'b', 'c', 'd'].forEach(opt => { document.getElementById(`marker-quiz-mc-answer-${opt}`).value = existingData.answers[opt] || ''; }); 
+                          if(existingData.correctAnswer) { 
+                              const radio = document.querySelector(`input[name="mcCorrectAnswer"][value="${existingData.correctAnswer}"]`); 
+                              if(radio) radio.checked = true; 
+                          } 
+                      } else if (existingData.quizType === 'sort') { 
+                          document.getElementById('marker-quiz-sort-question').value = existingData.question || ''; 
+                          document.getElementById('marker-quiz-sort-items').value = (existingData.correctOrder || []).join('\n'); 
+                      } else if (existingData.quizType === 'fill') { 
+                          document.getElementById('marker-quiz-fill-question').value = existingData.question || ''; 
+                          document.getElementById('marker-quiz-fill-answer').value = (existingData.answers || []).join(','); 
+                      } 
                  }
                  else if (type === 'embed') { document.getElementById('marker-embed-title').value = existingData.title || ''; document.getElementById('marker-embed-url').value = existingData.url || ''; }
             } else if (type === 'quiz') { 
@@ -998,11 +998,11 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                         }
                     } else if (editingMarkerId) {
                         const oldMarker = markersPlugin.getMarker(editingMarkerId);
-                        // If there was an old audio URL and we haven't created a new blob, keep the old one.
-                        if (oldMarker.config.data.audioUrl && !audioPreview.src.startsWith('blob:')) {
+                        // If there was an old audio URL and it was not cleared, keep it.
+                        if (oldMarker.config.data.audioUrl && audioPreview.src) {
                             newMarkerData.audioUrl = oldMarker.config.data.audioUrl;
-                        } else if (!oldMarker.config.data.audioUrl) {
-                            delete newMarkerData.audioUrl;
+                        } else {
+                             delete newMarkerData.audioUrl;
                         }
                     }
                 }
@@ -1303,9 +1303,6 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
             reader.readAsDataURL(blob);
         });
         
-        // =============================================
-        // ✨ REVISED EXPORT FUNCTION (USES CACHED LIBS)
-        // =============================================
         function cacheLibraries() {
             console.log('正在從內嵌資源準備程式庫...');
             try {
@@ -1336,24 +1333,36 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
              if (!cachedLibs) {
                 showToast('必要資源載入失敗，無法匯出。請檢查網路連線並重新整理頁面。', true);
                 return;
-            }
-            showToast('正在打包您的導覽...', false);
+             }
+             showToast('正在打包您的導覽...', false);
         
-            try {
+             try {
                 // 1. Save current scene markers
                 const currentScene = scenes.find(s => s.id === currentSceneId);
                 if (currentScene && markersPlugin) {
                     currentScene.markers = markersPlugin.getMarkers().map(m => m.config);
                 }
         
-                // 2. Deep copy scenes and convert media blobs to Base64
+                // 2. Deep copy scenes and convert ALL media blobs to Base64
                 const scenesForExport = JSON.parse(JSON.stringify(scenes));
                 showToast('正在處理媒體檔案...', false);
                 for (const scene of scenesForExport) {
+                    // Convert scene panorama
                     if (scene.url && scene.url.startsWith('blob:')) {
                         const response = await fetch(scene.url);
                         const blob = await response.blob();
                         scene.url = await blobToDataURL(blob);
+                    }
+                    // Convert marker media
+                    if (scene.markers) {
+                        for (const markerConfig of scene.markers) {
+                            const data = markerConfig.data;
+                            if (data && data.audioUrl && data.audioUrl.startsWith('blob:')) {
+                                const response = await fetch(data.audioUrl);
+                                const blob = await response.blob();
+                                data.audioUrl = await blobToDataURL(blob);
+                            }
+                        }
                     }
                 }
         
@@ -1406,7 +1415,7 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
             <div id="embed-content" class="flex-grow bg-white overflow-hidden rounded-b-xl"></div>
         </div>
     </div>
-    <div id="toast-notification" class="fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full" style="transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-120%); opacity: 0; z-index: 60;">
+    <div id="toast-notification" class="fixed top-5 left-1/2 -translate-x-1/2 bg-rose-500 text-white py-3 px-6 border-2 border-rose-800 shadow-lg rounded-full">
         <p id="toast-message" class="font-bold text-lg"></p>
     </div>
     <div id="image-lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
@@ -1416,13 +1425,10 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
 
     <script id="tour-data" type="application/json">${scenesDataString.replace(/<\/script/gi, '<\\/script')}<\/script>
     
-    <script>
-        // Embedded libraries
-        ${threeJs.replace(/<\/script/gi, '<\\/script')}
-        ${uEventJs.replace(/<\/script/gi, '<\\/script')}
-        ${psvJs.replace(/<\/script/gi, '<\\/script')}
-        ${markersJs.replace(/<\/script/gi, '<\\/script')}
-    <\/script>
+    <script>${threeJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script>${uEventJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script>${psvJs.replace(/<\/script/gi, '<\\/script')}<\/script>
+    <script>${markersJs.replace(/<\/script/gi, '<\\/script')}<\/script>
 
     <script>
     document.addEventListener('DOMContentLoaded', () => {
@@ -1430,17 +1436,16 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
         if (!scenesDataElement) { document.body.innerHTML = '<h1>錯誤：找不到導覽資料。</h1>'; return; }
         const scenes = JSON.parse(scenesDataElement.textContent);
         let viewer, markersPlugin, currentSceneId, sceneHistory = [], currentQuizData, toastTimeout;
+        
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast-notification'), msg = document.getElementById('toast-message');
             if (!toast) return;
             clearTimeout(toastTimeout);
             msg.textContent = message;
-            toast.style.backgroundColor = isError ? '#ef4444' : '#f43f5e';
-            toast.style.borderColor = isError ? '#b91c1c' : '#831843';
-            toast.style.transform = 'translate(-50%, 0)';
-            toast.style.opacity = '1';
-            toastTimeout = setTimeout(() => { toast.style.transform = 'translate(-50%, -120%)'; toast.style.opacity = '0'; }, 3000);
+            toast.className = \`fixed top-5 left-1/2 -translate-x-1/2 text-white py-3 px-6 border-2 shadow-lg rounded-full \${isError ? 'bg-red-500 border-red-800' : 'bg-rose-500 border-rose-800'} show\`;
+            toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
         }
+
         const loadScene = (sceneId, isBack = false) => {
             const scene = scenes.find(s => s.id === sceneId);
             if (!scene) return;
@@ -1570,10 +1575,10 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
                 URL.revokeObjectURL(a.href);
                 showToast('導覽檔案已成功匯出！');
         
-            } catch(error) {
+             } catch(error) {
                 console.error('打包導覽時發生錯誤:', error);
                 showToast(`打包導覽失敗: ${error.message}`, true);
-            }
+             }
         }
 
 
@@ -1933,4 +1938,3 @@ const REVISION="147",MOUSE={LEFT:0,MIDDLE:1,RIGHT:2,ROTATE:0,DOLLY:1,PAN:2},TOUC
     </script>
 </body>
 </html>
-
